@@ -1,0 +1,2867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mesh Gradient Studio</title>
+<style>
+  :root{
+    --bg:#0c0c0e;
+    --panel-solid:rgba(24,24,28,0.72);
+    --panel:rgba(20,20,24,0.6);
+    --panel-2:rgba(36,36,42,0.6);
+    --border:rgba(255,255,255,0.12);
+    --border-soft:rgba(255,255,255,0.06);
+    --text:#e9e9ee;
+    --text-dim:#9a9aa4;
+    --text-dimmer:#6a6a74;
+    --accent:#ffffff;
+    --accent-dim:rgba(255,255,255,0.5);
+    --danger:#ff6b6b;
+    --radius:14px;
+    --radius-sm:10px;
+    --mono:"SF Mono","JetBrains Mono","Fira Code",ui-monospace,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    --shadow:0 12px 40px rgba(0,0,0,0.4);
+    --blur:blur(28px) saturate(1.8);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:var(--sans);
+    background:var(--bg);
+    color:var(--text);
+    font-size:13px;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ===== Fullscreen canvas background ===== */
+  #preview{
+    position:fixed;
+    inset:0;
+    z-index:0;
+    width:100vw;
+    height:100vh;
+    display:block;
+  }
+
+  /* ===== Glass base ===== */
+  .glass{
+    background:var(--panel-solid);
+    backdrop-filter:var(--blur);
+    -webkit-backdrop-filter:var(--blur);
+    border:1px solid var(--border);
+    box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+
+  /* ===== Floating top bar ===== */
+  .topbar{
+    position:fixed;
+    top:16px;
+    left:50%;
+    transform:translateX(-50%);
+    z-index:100;
+    display:flex;
+    align-items:center;
+    gap:16px;
+    padding:10px 16px;
+    border-radius:100px;
+    overflow:visible;
+  }
+  .topbar .brand{display:flex;align-items:center;gap:10px}
+  .topbar .brand .logo{
+    width:24px;height:24px;border-radius:7px;
+    background:conic-gradient(from 180deg,#ff6b6b,#feca57,#48dbfb,#a55eea,#ff6b6b);
+    box-shadow:0 0 12px rgba(255,255,255,0.25);
+  }
+  .topbar .brand h1{font-size:13px;font-weight:600;letter-spacing:.2px}
+  .topbar .toolbar{display:flex;align-items:center;gap:6px}
+  .topbar .btn-icon{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:34px;height:34px;border-radius:100px;
+    border:1px solid transparent;background:rgba(255,255,255,0.06);
+    color:var(--text);cursor:pointer;transition:.18s;
+    position:relative;
+  }
+  .topbar .btn-icon:hover{background:rgba(255,255,255,0.14);border-color:var(--border)}
+  .topbar .btn-icon svg{width:15px;height:15px}
+  .topbar .btn-icon.has-label{width:auto;padding:0 14px;gap:6px;font-size:12px;font-weight:500}
+  .topbar .btn-icon.has-label svg{width:14px;height:14px}
+
+  /* ===== Export dropdown ===== */
+  .export-dropdown{
+    position:absolute;
+    top:calc(100% + 12px);
+    right:0;
+    min-width:300px;
+    padding:18px;
+    border-radius:var(--radius);
+    opacity:0;
+    pointer-events:none;
+    transform:translateY(-8px) scale(0.96);
+    transform-origin:top right;
+    transition:opacity .22s, transform .22s;
+    z-index:200;
+  }
+  .export-dropdown.show{
+    opacity:1;
+    pointer-events:auto;
+    transform:translateY(0) scale(1);
+  }
+  .export-row{
+    display:flex;align-items:flex-start;gap:12px;
+    margin-bottom:16px;
+  }
+  .export-row:last-of-type{margin-bottom:20px}
+  .export-label{
+    font-size:12px;color:var(--text-dim);min-width:42px;padding-top:8px;
+    font-weight:500;
+  }
+  .export-dropdown .seg{
+    display:flex;background:rgba(255,255,255,0.06);
+    border:1px solid var(--border);border-radius:10px;overflow:hidden;flex:1;
+  }
+  .export-dropdown .seg button{
+    flex:1;padding:9px 0;border:none;background:transparent;
+    color:var(--text-dim);font-size:12px;cursor:pointer;transition:.15s;
+    font-family:var(--sans);font-weight:600;
+  }
+  .export-dropdown .seg button:hover{color:var(--text)}
+  .export-dropdown .seg button.active{background:rgba(255,255,255,0.2);color:#fff}
+  .res-grid,.dur-grid{display:flex;gap:8px;flex:1;flex-wrap:wrap}
+  .res-grid button,.dur-grid button{
+    flex:1;padding:9px 8px;border-radius:10px;
+    background:rgba(255,255,255,0.06);
+    border:1px solid var(--border);
+    color:var(--text-dim);font-size:12px;font-weight:600;
+    cursor:pointer;transition:.15s;font-family:var(--sans);
+    min-width:0;
+  }
+  .res-grid button:hover,.dur-grid button:hover{background:rgba(255,255,255,0.12);color:var(--text)}
+  .res-grid button.active,.dur-grid button.active{background:#fff;color:#111;border-color:#fff}
+  .export-big-btn{
+    width:100%;padding:14px;border-radius:14px;border:none;
+    background:#fff;color:#111;font-size:14px;font-weight:700;
+    cursor:pointer;transition:.18s;font-family:var(--sans);
+    box-shadow:0 4px 24px rgba(255,255,255,0.2);
+  }
+  .export-big-btn:hover{filter:brightness(1.05);transform:translateY(-1px)}
+
+  /* ===== Loop toggle ===== */
+  .loop-row{align-items:flex-start}
+  .loop-toggle-wrap{flex:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-top:6px}
+  .loop-toggle{
+    display:inline-flex;align-items:center;gap:8px;
+    padding:5px 12px 5px 6px;border-radius:100px;
+    border:1px solid var(--border);background:rgba(255,255,255,0.06);
+    color:var(--text-dim);font-size:12px;font-weight:600;font-family:var(--sans);
+    cursor:pointer;transition:.2s;
+  }
+  .loop-toggle:hover{background:rgba(255,255,255,0.12);color:var(--text)}
+  .loop-track{
+    position:relative;width:30px;height:17px;border-radius:100px;
+    background:rgba(255,255,255,0.15);transition:background .25s;
+    flex-shrink:0;
+  }
+  .loop-thumb{
+    position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;
+    background:#999;transition:transform .25s,background .25s;
+  }
+  .loop-toggle[data-active="true"]{
+    background:rgba(255,255,255,0.22);color:#fff;border-color:rgba(255,255,255,0.3);
+  }
+  .loop-toggle[data-active="true"] .loop-track{background:rgba(255,255,255,0.5)}
+  .loop-toggle[data-active="true"] .loop-thumb{transform:translateX(13px);background:#fff}
+  .loop-hint{font-size:10px;color:var(--text-dimmer);font-weight:400;line-height:1.4}
+
+  /* ===== Side panels ===== */
+  .side-panel{
+    position:fixed;
+    top:88px;
+    width:310px;
+    max-height:calc(100vh - 170px);
+    overflow-y:auto;
+    padding:20px;
+    border-radius:18px;
+    z-index:50;
+    transition:opacity .3s, transform .3s;
+  }
+  .side-panel::-webkit-scrollbar{width:5px}
+  .side-panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:3px}
+  .side-panel::-webkit-scrollbar-track{background:transparent}
+  .left-panel{left:20px}
+  .right-panel{right:20px}
+
+  /* ===== Groups / fields ===== */
+  .group{margin-bottom:20px}
+  .group:last-child{margin-bottom:0}
+  .group-head{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:12px;
+  }
+  .group-title{
+    font-size:11px;font-weight:700;text-transform:uppercase;
+    letter-spacing:1px;color:var(--text-dim);
+  }
+  .edit-toggle{
+    font-size:11px;color:var(--accent-dim);cursor:pointer;
+    padding:4px 10px;border-radius:8px;background:rgba(255,255,255,0.06);
+    transition:.15s;
+  }
+  .edit-toggle:hover{background:rgba(255,255,255,0.12);color:#fff}
+  .edit-toggle.active{background:rgba(255,255,255,0.2);color:#fff}
+
+  .field{margin-bottom:14px}
+  .field-label{
+    display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:8px;
+  }
+  .field-label .name{font-size:12px;color:var(--text)}
+  .field-label .val{font-family:var(--mono);font-size:11px;color:var(--accent)}
+
+  input[type=range]{
+    -webkit-appearance:none;width:100%;height:4px;border-radius:4px;
+    background:rgba(255,255,255,0.12);outline:none;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:#fff;border:2px solid rgba(255,255,255,0.3);cursor:pointer;
+    box-shadow:0 1px 6px rgba(0,0,0,0.5);
+    transition:transform .15s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.15)}
+  input[type=range]::-moz-range-thumb{
+    width:16px;height:16px;border-radius:50%;
+    background:#fff;border:2px solid rgba(255,255,255,0.3);cursor:pointer;
+    box-shadow:0 1px 6px rgba(0,0,0,0.5);
+  }
+
+  .switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer}
+  .switch .track{
+    width:32px;height:18px;border-radius:20px;background:rgba(255,255,255,0.15);
+    position:relative;transition:.18s;
+  }
+  .switch .track::after{
+    content:"";position:absolute;top:2px;left:2px;
+    width:14px;height:14px;border-radius:50%;background:#9a9aa4;
+    transition:.18s;
+  }
+  .switch input{display:none}
+  .switch input:checked + .track{background:rgba(255,255,255,0.5)}
+  .switch input:checked + .track::after{left:16px;background:#fff}
+
+  /* ===== Presets ===== */
+  .save-current{
+    display:flex;align-items:center;gap:8px;
+    padding:12px 14px;background:rgba(255,255,255,0.06);
+    border:1px dashed var(--border);border-radius:12px;
+    cursor:pointer;color:var(--text);font-size:12px;font-weight:500;
+    transition:.15s;margin-bottom:16px;
+  }
+  .save-current:hover{background:rgba(255,255,255,0.12);border-style:solid;border-color:rgba(255,255,255,0.3)}
+  .save-current svg{width:14px;height:14px}
+
+  .section-title{
+    font-size:10px;text-transform:uppercase;letter-spacing:1px;
+    color:var(--text-dimmer);margin:16px 0 8px;
+    font-weight:700;
+  }
+  .section-title:first-child{margin-top:0}
+
+  .preset-list{display:flex;flex-direction:column;gap:10px}
+  .preset-item{
+    position:relative;border-radius:12px;
+    overflow:hidden;cursor:pointer;
+    border:2px solid rgba(255,255,255,0.08);
+    transition:.18s;
+    background:rgba(255,255,255,0.02);
+  }
+  .preset-item:hover{border-color:rgba(255,255,255,0.3);transform:translateY(-1px)}
+  .preset-item.active{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,0.15)}
+  .preset-item .bg{height:48px;position:relative}
+  .preset-item .info{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:8px 10px;background:rgba(0,0,0,0.25);
+  }
+  .preset-item .name{
+    font-size:12px;font-weight:600;color:var(--text);
+    flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .preset-item .name input{
+    width:100%;background:transparent;border:none;color:var(--text);
+    font-size:12px;font-weight:600;font-family:var(--sans);
+    outline:none;border-bottom:1px solid #fff;
+  }
+  .preset-item .actions{display:flex;gap:2px}
+  .preset-item .actions button{
+    width:24px;height:24px;border:none;background:transparent;
+    color:var(--text-dim);cursor:pointer;border-radius:6px;
+    display:inline-flex;align-items:center;justify-content:center;
+  }
+  .preset-item .actions button:hover{background:rgba(255,255,255,0.1);color:var(--text)}
+  .preset-item .actions button.del:hover{color:var(--danger);background:rgba(255,107,107,0.15)}
+  .preset-item .actions svg{width:12px;height:12px}
+
+  .hint{font-size:10px;color:var(--text-dimmer);margin-top:4px;line-height:1.5}
+
+  /* ===== Mesh stop row ===== */
+  .stop-row{
+    display:flex;align-items:center;gap:0;
+    background:transparent;border:none;border-radius:8px;
+    margin-bottom:6px;padding:0;
+    transition:background .15s;
+  }
+  .stop-row:hover{background:rgba(255,255,255,0.04)}
+  .stop-row.dragging{opacity:.4}
+  .stop-row.drag-over-top{border-top:2px solid #fff}
+  .stop-row.drag-over-bottom{border-bottom:2px solid #fff}
+
+  .stop-row .drag-handle{
+    width:28px;height:40px;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;
+    cursor:grab;color:transparent;opacity:0;
+    transition:opacity .15s;
+  }
+  .stop-row:hover .drag-handle{opacity:1;color:var(--text-dim)}
+  .stop-row .drag-handle:active{cursor:grabbing}
+  .stop-row .drag-handle svg{width:14px;height:14px}
+
+  .stop-row .color-wrap{
+    display:flex;align-items:center;gap:0;flex:1;min-width:0;
+    background:rgba(255,255,255,0.04);border:1px solid var(--border-soft);
+    border-radius:8px;height:40px;overflow:hidden;
+    transition:border-color .15s;
+  }
+  .stop-row .color-wrap:focus-within{border-color:rgba(255,255,255,0.4)}
+  .stop-row .swatch{
+    width:40px;height:40px;flex-shrink:0;
+    position:relative;cursor:pointer;
+    background-image:
+      linear-gradient(45deg,#d0d0d0 25%,transparent 25%),
+      linear-gradient(-45deg,#d0d0d0 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#d0d0d0 75%),
+      linear-gradient(-45deg,transparent 75%,#d0d0d0 75%);
+    background-size:8px 8px;
+    background-position:0 0,0 4px,4px -4px,-4px 0;
+    background-color:#f0f0f0;
+  }
+  .stop-row .swatch-fill{
+    position:absolute;inset:0;
+    background-color:#ffffff;
+    transition:background-color .1s,opacity .1s;
+  }
+  .stop-row .swatch::after{
+    content:'';position:absolute;inset:0;
+    border:1px solid var(--border-soft);
+    pointer-events:none;
+  }
+  .stop-row .hex-input{
+    flex:1;min-width:0;height:100%;
+    background:transparent;border:none;outline:none;
+    color:var(--text);font-family:var(--mono);font-size:12px;
+    padding:0 10px;text-transform:uppercase;
+  }
+  .stop-row .hex-input::placeholder{color:var(--text-dimmer)}
+
+  .stop-row .opacity-wrap{
+    display:flex;align-items:center;gap:4px;flex-shrink:0;
+    width:82px;height:40px;
+    background:rgba(255,255,255,0.04);border:1px solid var(--border-soft);
+    border-left:none;border-radius:8px 0 0 8px;
+    transition:border-color .15s;
+  }
+  .stop-row .opacity-wrap:focus-within{border-color:rgba(255,255,255,0.4)}
+  .stop-row .opacity-input{
+    width:44px;height:100%;
+    background:transparent;border:none;outline:none;
+    color:var(--text);font-family:var(--mono);font-size:12px;
+    padding:0 6px;text-align:right;
+  }
+  .stop-row .opacity-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .stop-row .opacity-input[type=number]{-moz-appearance:textfield}
+  .stop-row .opacity-pct{color:var(--text-dim);font-size:12px;padding-right:8px}
+
+  .stop-row .actions{
+    display:flex;align-items:center;gap:0;flex-shrink:0;
+    margin-left:4px;
+  }
+  .stop-row .act-btn{
+    width:28px;height:28px;border-radius:6px;border:none;
+    background:transparent;color:var(--text-dim);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    transition:.15s;
+  }
+  .stop-row .act-btn:hover{background:rgba(255,255,255,0.08);color:var(--text)}
+  .stop-row .act-btn svg{width:14px;height:14px}
+  .stop-row .act-btn.hidden{color:rgba(255,255,255,0.25)}
+  .stop-row .act-btn.danger:hover{background:rgba(239,68,68,0.15);color:#ef4444}
+
+  .stop-row.is-hidden{opacity:.55}
+  .stop-row.is-hidden .swatch-fill{filter:grayscale(1)}
+  .stop-row.is-hidden .hex-input{color:var(--text-dim)}
+
+  .add-btn{
+    width:100%;padding:9px;border:1px dashed var(--border);border-radius:10px;
+    background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    transition:.15s;margin-top:6px;font-family:var(--sans);
+  }
+  .add-btn:hover{border-color:rgba(255,255,255,0.4);color:#fff;background:rgba(255,255,255,0.04)}
+
+  /* ===== Code bar ===== */
+  .code-bar{
+    position:fixed;
+    bottom:16px;
+    left:50%;
+    transform:translateX(-50%);
+    width:calc(100% - 640px);
+    max-width:720px;
+    border-radius:16px;
+    z-index:50;
+    display:flex;flex-direction:column;
+    transition:.25s;height:180px;
+  }
+  .code-bar.collapsed{height:42px}
+  .code-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:10px 16px;cursor:pointer;flex-shrink:0;
+    border-bottom:1px solid var(--border-soft);
+  }
+  .code-head .tabs{display:flex;gap:4px}
+  .code-tab{
+    padding:5px 12px;border-radius:8px;font-size:11px;cursor:pointer;
+    color:var(--text-dim);transition:.15s;font-weight:500;
+  }
+  .code-tab.active{background:rgba(255,255,255,0.15);color:#fff}
+  .code-head .right{display:flex;align-items:center;gap:8px}
+  .btn-copy{
+    height:28px;padding:0 14px;border-radius:8px;border:1px solid var(--border);
+    background:rgba(255,255,255,0.06);color:var(--text);
+    font-size:11px;cursor:pointer;transition:.15s;font-family:var(--sans);
+  }
+  .btn-copy:hover{background:rgba(255,255,255,0.14)}
+  .code-chev{color:var(--text-dim);transition:.2s}
+  .code-bar.collapsed .code-chev{transform:rotate(180deg)}
+  pre.code{
+    margin:0;padding:14px 16px;overflow:auto;flex:1;
+    font-family:var(--mono);font-size:11px;line-height:1.6;color:#cfd2da;
+    background:rgba(0,0,0,0.2);
+  }
+
+  /* ===== Footer info ===== */
+  .footer-bar{
+    position:fixed;
+    bottom:16px;
+    left:20px;
+    z-index:50;
+    display:flex;gap:16px;
+    padding:8px 14px;
+    border-radius:12px;
+    font-size:11px;color:var(--text-dim);
+    font-family:var(--mono);
+    opacity:0.85;
+  }
+  .footer-bar span b{color:var(--text);font-weight:600}
+
+  /* ===== Fullscreen state ===== */
+  body.fullscreen .topbar,
+  body.fullscreen .side-panel,
+  body.fullscreen .code-bar,
+  body.fullscreen .footer-bar{
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .35s, transform .35s;
+  }
+  body.fullscreen .topbar{transform:translateX(-50%) translateY(-20px)}
+  body.fullscreen .left-panel{transform:translateX(-20px)}
+  body.fullscreen .right-panel{transform:translateX(20px)}
+  body.fullscreen .code-bar{transform:translateX(-50%) translateY(20px)}
+
+  /* ===== Toast ===== */
+  .toast{
+    position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:rgba(20,20,24,0.95);border:1px solid var(--border);color:var(--text);
+    padding:9px 16px;border-radius:8px;font-size:12px;
+    opacity:0;transition:.25s;pointer-events:none;z-index:200;
+    box-shadow:0 8px 24px rgba(0,0,0,0.5);
+    backdrop-filter:blur(12px);
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* ===== Rename modal ===== */
+  .rename-modal{
+    position:fixed;inset:0;background:rgba(0,0,0,0.6);
+    display:none;align-items:center;justify-content:center;z-index:300;
+    backdrop-filter:blur(4px);
+  }
+  .rename-modal.show{display:flex}
+  .rename-modal .box{
+    background:var(--panel-solid);border:1px solid var(--border);border-radius:var(--radius);
+    padding:20px;min-width:320px;
+    backdrop-filter:var(--blur);
+  }
+  .rename-modal h3{font-size:14px;margin-bottom:12px}
+  .rename-modal input{
+    width:100%;padding:8px 10px;background:rgba(255,255,255,0.06);border:1px solid var(--border);
+    border-radius:var(--radius-sm);color:var(--text);font-size:13px;
+    outline:none;margin-bottom:14px;
+  }
+  .rename-modal input:focus{border-color:rgba(255,255,255,0.4)}
+  .rename-modal .btns{display:flex;justify-content:flex-end;gap:8px}
+  .rename-modal .btn{
+    padding:7px 16px;border-radius:var(--radius-sm);border:1px solid var(--border);
+    background:rgba(255,255,255,0.06);color:var(--text);cursor:pointer;
+    font-size:12px;font-family:var(--sans);transition:.15s;
+  }
+  .rename-modal .btn:hover{background:rgba(255,255,255,0.14)}
+  .rename-modal .btn.primary{background:#fff;color:#111;border-color:#fff;font-weight:600}
+  .rename-modal .btn.primary:hover{filter:brightness(1.05)}
+
+  /* ===== Confirm modal ===== */
+  .confirm-modal{
+    position:fixed;inset:0;background:rgba(0,0,0,0.6);
+    display:none;align-items:center;justify-content:center;z-index:300;
+    backdrop-filter:blur(4px);
+  }
+  .confirm-modal.show{display:flex}
+  .confirm-modal .box{
+    background:var(--panel-solid);border:1px solid var(--border);border-radius:var(--radius);
+    padding:20px;min-width:320px;
+    backdrop-filter:var(--blur);
+  }
+  .confirm-modal h3{font-size:14px;margin-bottom:12px}
+  .confirm-modal p{font-size:13px;color:var(--text-dim);margin-bottom:16px;line-height:1.5}
+  .confirm-modal .btns{display:flex;justify-content:flex-end;gap:8px}
+  .confirm-modal .btn{
+    padding:7px 16px;border-radius:var(--radius-sm);border:1px solid var(--border);
+    background:rgba(255,255,255,0.06);color:var(--text);cursor:pointer;
+    font-size:12px;font-family:var(--sans);transition:.15s;
+  }
+  .confirm-modal .btn:hover{background:rgba(255,255,255,0.14)}
+  .confirm-modal .btn.primary{background:#fff;color:#111;border-color:#fff;font-weight:600}
+  .confirm-modal .btn.primary:hover{filter:brightness(1.05)}
+
+  /* ===== Overlay controls ===== */
+  .overlay-seg{
+    display:flex;background:rgba(255,255,255,0.06);
+    border:1px solid var(--border);border-radius:10px;overflow:hidden;flex:1;
+  }
+  .overlay-seg button{
+    flex:1;padding:8px 0;border:none;background:transparent;
+    color:var(--text-dim);font-size:12px;cursor:pointer;transition:.15s;
+    font-family:var(--sans);font-weight:600;
+  }
+  .overlay-seg button:hover{color:var(--text)}
+  .overlay-seg button.active{background:rgba(255,255,255,0.2);color:#fff}
+  .overlay-textarea{
+    width:100%;padding:8px 10px;background:rgba(255,255,255,0.06);border:1px solid var(--border);
+    border-radius:var(--radius-sm);color:var(--text);font-size:13px;
+    outline:none;resize:none;height:60px;font-family:var(--sans);margin-top:10px;
+  }
+  .overlay-textarea:focus{border-color:rgba(255,255,255,0.4)}
+  .overlay-upload{
+    margin-top:10px;
+  }
+  .overlay-upload input[type=file]{display:none}
+  .overlay-upload .upload-btn{
+    width:100%;padding:9px;border:1px dashed var(--border);border-radius:10px;
+    background:transparent;color:var(--text-dim);font-size:12px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    transition:.15s;font-family:var(--sans);
+  }
+  .overlay-upload .upload-btn:hover{border-color:rgba(255,255,255,0.4);color:#fff;background:rgba(255,255,255,0.04)}
+  .overlay-upload .file-name{
+    font-size:11px;color:var(--text-dimmer);margin-top:6px;text-align:center;
+    word-break:break-all;
+  }
+  .overlay-actions{
+    display:flex;gap:8px;margin-top:10px;
+  }
+  .overlay-actions button{
+    flex:1;padding:7px 0;border-radius:var(--radius-sm);border:1px solid var(--border);
+    background:rgba(255,255,255,0.06);color:var(--text-dim);cursor:pointer;
+    font-size:12px;font-family:var(--sans);transition:.15s;
+  }
+  .overlay-actions button:hover{background:rgba(255,255,255,0.12);color:#fff}
+  .overlay-actions button.danger{border-color:rgba(255,107,107,0.4);color:var(--danger)}
+  .overlay-actions button.danger:hover{background:rgba(255,107,107,0.15)}
+
+  /* ===== Color picker popup ===== */
+  .color-picker-popup{
+    position:fixed;
+    z-index:500;
+    width:260px;
+    background:rgba(30,30,34,0.95);
+    backdrop-filter:blur(20px) saturate(1.8);
+    -webkit-backdrop-filter:blur(20px) saturate(1.8);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:14px;
+    box-shadow:0 16px 48px rgba(0,0,0,0.5);
+    font-family:var(--sans);
+    display:none;
+  }
+  .color-picker-popup.show{display:block}
+  .color-picker-popup .preview-row{
+    display:flex;align-items:center;gap:10px;margin-bottom:12px;
+  }
+  .color-picker-popup .preview-box{
+    width:48px;height:48px;border-radius:10px;
+    border:1px solid var(--border-soft);
+    background-image:
+      linear-gradient(45deg,#d0d0d0 25%,transparent 25%),
+      linear-gradient(-45deg,#d0d0d0 25%,transparent 25%),
+      linear-gradient(45deg,transparent 75%,#d0d0d0 75%),
+      linear-gradient(-45deg,transparent 75%,#d0d0d0 75%);
+    background-size:8px 8px;
+    background-position:0 0,0 4px,4px -4px,-4px 0;
+    background-color:#f0f0f0;
+    position:relative;overflow:hidden;
+  }
+  .color-picker-popup .preview-fill{
+    position:absolute;inset:0;transition:background-color .1s;
+  }
+  .color-picker-popup .hex-row{
+    flex:1;display:flex;align-items:center;gap:6px;
+  }
+  .color-picker-popup .hex-row input{
+    flex:1;height:36px;background:rgba(255,255,255,0.06);
+    border:1px solid var(--border);border-radius:8px;
+    color:var(--text);font-family:var(--mono);font-size:13px;
+    padding:0 10px;text-transform:uppercase;outline:none;
+  }
+  .color-picker-popup .hex-row input:focus{border-color:rgba(255,255,255,0.4)}
+  .color-picker-popup .picker-area{
+    position:relative;width:100%;height:120px;
+    border-radius:10px;overflow:hidden;margin-bottom:10px;
+    cursor:crosshair;
+  }
+  .color-picker-popup .picker-area canvas{
+    width:100%;height:100%;display:block;
+  }
+  .color-picker-popup .picker-cursor{
+    position:absolute;width:14px;height:14px;border-radius:50%;
+    border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,0.5);
+    transform:translate(-50%,-50%);pointer-events:none;
+    transition:width .1s,height .1s;
+  }
+  .color-picker-popup .sat-val-area{
+    width:100%;margin-bottom:12px;
+  }
+  .color-picker-popup .sat-bg{
+    position:relative;width:100%;height:140px;
+    border-radius:10px;overflow:hidden;
+    cursor:crosshair;border:1px solid var(--border);
+  }
+  .color-picker-popup .sat-gradient{
+    position:absolute;inset:0;
+  }
+  .color-picker-popup .hue-bar{
+    position:relative;width:100%;height:14px;border-radius:8px;
+    margin-bottom:10px;cursor:pointer;
+    background:linear-gradient(to right,
+      hsl(0,100%,50%),
+      hsl(30,100%,50%),
+      hsl(60,100%,50%),
+      hsl(90,100%,50%),
+      hsl(120,100%,50%),
+      hsl(150,100%,50%),
+      hsl(180,100%,50%),
+      hsl(210,100%,50%),
+      hsl(240,100%,50%),
+      hsl(270,100%,50%),
+      hsl(300,100%,50%),
+      hsl(330,100%,50%),
+      hsl(360,100%,50%)
+    );
+  }
+  .color-picker-popup .hue-cursor{
+    position:absolute;top:-2px;width:8px;height:18px;border-radius:4px;
+    background:#fff;border:2px solid rgba(0,0,0,0.3);
+    transform:translateX(-50%);pointer-events:none;
+    box-shadow:0 1px 3px rgba(0,0,0,0.4);
+  }
+  .color-picker-popup .actions{
+    display:flex;gap:8px;
+  }
+  .color-picker-popup .actions button{
+    flex:1;padding:8px 0;border-radius:8px;border:1px solid var(--border);
+    background:rgba(255,255,255,0.06);color:var(--text);
+    font-size:12px;cursor:pointer;transition:.15s;font-family:var(--sans);
+    font-weight:500;
+  }
+  .color-picker-popup .actions button:hover{background:rgba(255,255,255,0.12)}
+  .color-picker-popup .actions button.primary{
+    background:#fff;color:#111;border-color:#fff;font-weight:600;
+  }
+  .color-picker-popup .actions button.primary:hover{filter:brightness(1.05)}
+
+  /* ===== Hidden compatibility elements ===== */
+  .code-bar{display:none !important}
+  .compat-hidden{display:none !important}
+
+  @media (max-width:900px){
+    .code-bar{width:calc(100% - 40px)}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="preview"></canvas>
+
+<!-- ===== Top bar ===== -->
+<div class="topbar glass" id="topbar">
+  <div class="brand">
+    <div class="logo"></div>
+    <h1>Mesh Gradient Studio</h1>
+  </div>
+  <div class="toolbar">
+    <button class="btn-icon" id="btnReset" title="重置">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+    </button>
+    <button class="btn-icon" id="btnFullscreen" title="全屏">
+      <svg class="icon-enter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+      <svg class="icon-exit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+    </button>
+    <button class="btn-icon" id="btnDownloadPng" title="下载 PNG">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
+    </button>
+    <button class="btn-icon" id="btnShare" title="复制带配置的链接">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+    </button>
+    <button class="btn-icon has-label" id="btnExport" title="导出视频">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+      导出视频
+    </button>
+    <button class="btn-icon" id="btnCopyCode" title="复制代码">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    </button>
+  </div>
+
+  <!-- ===== Export dropdown ===== -->
+  <div class="export-dropdown glass" id="exportDropdown">
+    <div class="export-row">
+      <span class="export-label">格式</span>
+      <div class="seg" id="segFormat">
+        <button data-v="webm" class="active">WEBM</button>
+        <button data-v="mp4">MP4</button>
+      </div>
+    </div>
+    <div class="export-row">
+      <span class="export-label">分辨率</span>
+      <div class="res-grid" id="resGrid">
+        <button data-v="2" class="active">1080p</button>
+        <button data-v="4">4K</button>
+      </div>
+    </div>
+    <div class="export-row">
+      <span class="export-label">时长</span>
+      <div class="dur-grid" id="durGrid">
+        <button data-v="3">3秒</button>
+        <button data-v="6" class="active">6秒</button>
+        <button data-v="10">10秒</button>
+      </div>
+    </div>
+    <div class="export-row loop-row">
+      <span class="export-label">循环</span>
+      <div class="loop-toggle-wrap">
+        <button class="loop-toggle" id="loopToggle" data-active="false">
+          <span class="loop-track"><span class="loop-thumb"></span></span>
+          <span class="loop-text">关闭</span>
+        </button>
+        <span class="loop-hint">开启后导出首尾衔接的循环动画</span>
+      </div>
+    </div>
+    <button class="export-big-btn" id="btnStartExport">导出 WEBM · 1080p · 6秒</button>
+  </div>
+</div>
+
+<!-- ===== Left panel ===== -->
+<aside class="side-panel left-panel glass" id="leftPanel">
+  <div class="save-current" id="saveCurrent">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+    保存当前方案为预设
+  </div>
+
+  <div class="section-title">预设方案</div>
+  <div class="preset-list" id="presetList"></div>
+</aside>
+
+<!-- ===== Right panel ===== -->
+<aside class="side-panel right-panel glass" id="rightPanel">
+  <div class="group">
+    <div class="group-head">
+      <span class="group-title">网格色点</span>
+      <span class="edit-toggle" id="toggleEdit">点击编辑色点位置</span>
+    </div>
+    <div id="meshStops"></div>
+    <button class="add-btn" id="addMesh">
+      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      添加色点
+    </button>
+  </div>
+
+  <div class="group">
+    <div class="group-head">
+      <span class="group-title">流动动画</span>
+      <label class="switch">
+        <input type="checkbox" id="flow" checked>
+        <span class="track"></span>
+      </label>
+    </div>
+    <div class="field">
+      <div class="field-label"><span class="name">流动速度</span><span class="val" id="flowSpeedVal">1.60</span></div>
+      <input type="range" id="flowSpeed" min="0" max="2" step="0.05" value="1.6">
+    </div>
+    <div class="field">
+      <div class="field-label"><span class="name">湍流强度</span><span class="val" id="turbulenceVal">1.25</span></div>
+      <input type="range" id="turbulence" min="0" max="1.5" step="0.05" value="1.25">
+    </div>
+    <div class="field">
+      <div class="field-label"><span class="name">融合度</span><span class="val" id="blendVal">0.66</span></div>
+      <input type="range" id="blend" min="0.2" max="1" step="0.02" value="0.66">
+    </div>
+  </div>
+
+  <div class="group">
+    <div class="group-head"><span class="group-title">后期处理</span></div>
+    <div class="field">
+      <div class="field-label"><span class="name">电影胶片噪点</span><span class="val" id="noiseVal">20</span></div>
+      <input type="range" id="noise" min="0" max="100" step="1" value="20">
+    </div>
+  </div>
+
+  <div class="group" id="overlayGroup">
+    <div class="group-head"><span class="group-title">在线预览</span></div>
+    <div class="field">
+      <div class="overlay-seg" id="overlaySeg">
+        <button data-mode="none" class="active">无</button>
+        <button data-mode="text">文字</button>
+        <button data-mode="image">界面图片</button>
+      </div>
+    </div>
+    <div id="overlayTextWrap" style="display:none">
+      <textarea class="overlay-textarea" id="overlayText" placeholder="输入预览文字"></textarea>
+    </div>
+    <div id="overlayImageWrap" style="display:none">
+      <label class="overlay-upload">
+        <input type="file" id="overlayImageInput" accept="image/*">
+        <div class="upload-btn" id="overlayUploadBtn">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+          <span id="overlayUploadLabel">上传界面图片</span>
+        </div>
+        <div class="file-name" id="overlayFileName"></div>
+      </label>
+    </div>
+    <div class="overlay-actions" id="overlayActions" style="display:none">
+      <button id="overlayToggleVis">隐藏</button>
+      <button class="danger" id="overlayClose">关闭</button>
+    </div>
+    <div class="field overlay-scale-field" id="overlayScaleField" style="display:none;margin-top:10px">
+      <div class="field-label"><span class="name">缩放比例</span><span class="val" id="overlayScaleVal">100%</span></div>
+      <input type="range" id="overlayScale" min="20" max="200" step="5" value="100">
+    </div>
+  </div>
+
+  <!-- Hidden compatibility elements -->
+  <div class="compat-hidden">
+    <div id="videoOpts"></div>
+    <div id="sizeHint"></div>
+    <input type="range" id="duration">
+    <span id="durVal"></span>
+    <div class="seg" id="segSize"></div>
+  </div>
+</aside>
+
+<!-- ===== Code bar ===== -->
+<div class="code-bar glass" id="codeBar">
+  <div class="code-head" id="codeHead">
+    <div class="tabs">
+      <div class="code-tab active" data-c="canvas">Canvas</div>
+      <div class="code-tab" data-c="css">CSS</div>
+      <div class="code-tab" data-c="json">JSON</div>
+    </div>
+    <div class="right">
+      <button class="btn-copy" id="btnCopy2">复制</button>
+      <svg class="code-chev" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+    </div>
+  </div>
+  <pre class="code" id="codeOut"></pre>
+</div>
+
+<!-- ===== Footer bar ===== -->
+<div class="footer-bar glass" id="footerBar">
+  <span>尺寸 <b id="footSize">1920×1080</b></span>
+  <span>类型 <b id="footType">mesh</b></span>
+  <span>色点 <b id="footColors">4</b></span>
+</div>
+
+<!-- ===== Toast ===== -->
+<div class="toast" id="toast"></div>
+
+<!-- ===== Confirm modal ===== -->
+<div class="confirm-modal" id="confirmModal">
+  <div class="box">
+    <h3>导出确认</h3>
+    <p>是否关闭预览效果，继续导出？</p>
+    <div class="btns">
+      <button class="btn" id="confirmNo">否</button>
+      <button class="btn primary" id="confirmYes">是</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Rename modal ===== -->
+<div class="rename-modal" id="renameModal">
+  <div class="box">
+    <h3 id="renameTitle">重命名预设</h3>
+    <input type="text" id="renameInput" placeholder="输入名称">
+    <div class="btns">
+      <button class="btn" id="renameCancel">取消</button>
+      <button class="btn primary" id="renameOk">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- mp4-muxer v5.1.3 (MIT) 内联，用于 WebCodecs H.264 编码封装为标准 MP4 -->
+<script>
+/**
+ * Minified by jsDelivr using Terser v5.39.0.
+ * Original file: /npm/mp4-muxer@5.1.3/build/mp4-muxer.js
+ *
+ * Do NOT use SRI with dynamically generated files! More information: https://www.jsdelivr.com/using-sri-with-dynamic-files
+ */
+"use strict";var Mp4Muxer=(()=>{var e=Object.defineProperty,t=Object.getOwnPropertyDescriptor,i=Object.getOwnPropertyNames,s=Object.prototype.hasOwnProperty,a=(e,t,i)=>{if(!t.has(e))throw TypeError("Cannot "+i)},r=(e,t,i)=>(a(e,t,"read from private field"),i?i.call(e):t.get(e)),n=(e,t,i)=>{if(t.has(e))throw TypeError("Cannot add the same private member more than once");t instanceof WeakSet?t.add(e):t.set(e,i)},o=(e,t,i,s)=>(a(e,t,"write to private field"),s?s.call(e,i):t.set(e,i),i),h=(e,t,i)=>(a(e,t,"access private method"),i),l={};((t,i)=>{for(var s in i)e(t,s,{get:i[s],enumerable:!0})})(l,{ArrayBufferTarget:()=>xe,FileSystemWritableFileStreamTarget:()=>Ee,Muxer:()=>Ut,StreamTarget:()=>ze});var d,f,u,m,p,c,w,g,y=new Uint8Array(8),b=new DataView(y.buffer),k=e=>[(e%256+256)%256],T=e=>(b.setUint16(0,e,!1),[y[0],y[1]]),v=e=>(b.setUint32(0,e,!1),[y[1],y[2],y[3]]),C=e=>(b.setUint32(0,e,!1),[y[0],y[1],y[2],y[3]]),S=e=>(b.setUint32(0,Math.floor(e/2**32),!1),b.setUint32(4,e,!1),[y[0],y[1],y[2],y[3],y[4],y[5],y[6],y[7]]),x=e=>(b.setInt16(0,256*e,!1),[y[0],y[1]]),z=e=>(b.setInt32(0,65536*e,!1),[y[0],y[1],y[2],y[3]]),E=e=>(b.setInt32(0,2**30*e,!1),[y[0],y[1],y[2],y[3]]),A=(e,t=!1)=>{let i=Array(e.length).fill(null).map(((t,i)=>e.charCodeAt(i)));return t&&i.push(0),i},M=e=>e&&e[e.length-1],W=e=>{let t;for(let i of e)(!t||i.presentationTimestamp>t.presentationTimestamp)&&(t=i);return t},O=(e,t,i=!0)=>{let s=e*t;return i?Math.round(s):s},B=e=>{let t=e*(Math.PI/180),i=Math.cos(t),s=Math.sin(t);return[i,s,0,-s,i,0,0,0,1]},U=B(0),j=e=>[z(e[0]),z(e[1]),E(e[2]),z(e[3]),z(e[4]),E(e[5]),z(e[6]),z(e[7]),E(e[8])],D=e=>e?"object"!=typeof e?e:Array.isArray(e)?e.map(D):Object.fromEntries(Object.entries(e).map((([e,t])=>[e,D(t)]))):e,I=e=>e>=0&&e<2**32,R=(e,t,i)=>({type:e,contents:t&&new Uint8Array(t.flat(10)),children:i}),N=(e,t,i,s,a)=>R(e,[k(t),v(i),s??[]],a),V=e=>({type:"mdat",largeSize:e}),L=(e,t,i=!1)=>R("moov",null,[F(t,e),...e.map((e=>$(e,t))),i?le(e):null]),F=(e,t)=>{let i=O(Math.max(0,...t.filter((e=>e.samples.length>0)).map((e=>{const t=W(e.samples);return t.presentationTimestamp+t.duration}))),Mt),s=Math.max(...t.map((e=>e.id)))+1,a=!I(e)||!I(i),r=a?S:C;return N("mvhd",+a,0,[r(e),r(e),C(Mt),r(i),z(1),x(1),Array(10).fill(0),j(U),Array(24).fill(0),C(s)])},$=(e,t)=>R("trak",null,[P(e,t),H(e,t)]),P=(e,t)=>{let i,s=W(e.samples),a=O(s?s.presentationTimestamp+s.duration:0,Mt),r=!I(t)||!I(a),n=r?S:C;return i="video"===e.info.type?"number"==typeof e.info.rotation?B(e.info.rotation):e.info.rotation:U,N("tkhd",+r,3,[n(t),n(t),C(e.id),C(0),n(a),Array(8).fill(0),T(0),T(0),x("audio"===e.info.type?1:0),T(0),j(i),z("video"===e.info.type?e.info.width:0),z("video"===e.info.type?e.info.height:0)])},H=(e,t)=>R("mdia",null,[_(e,t),q("video"===e.info.type?"vide":"soun"),G(e)]),_=(e,t)=>{let i=W(e.samples),s=O(i?i.presentationTimestamp+i.duration:0,e.timescale),a=!I(t)||!I(s),r=a?S:C;return N("mdhd",+a,0,[r(t),r(t),C(e.timescale),r(s),T(21956),T(0)])},q=e=>N("hdlr",0,0,[A("mhlr"),A(e),C(0),C(0),C(0),A("mp4-muxer-hdlr",!0)]),G=e=>R("minf",null,["video"===e.info.type?J():K(),Q(),Z(e)]),J=()=>N("vmhd",0,1,[T(0),T(0),T(0),T(0)]),K=()=>N("smhd",0,0,[T(0),T(0)]),Q=()=>R("dinf",null,[X()]),X=()=>N("dref",0,0,[C(1)],[Y()]),Y=()=>N("url ",0,1),Z=e=>{const t=e.compositionTimeOffsetTable.length>1||e.compositionTimeOffsetTable.some((e=>0!==e.sampleCompositionTimeOffset));return R("stbl",null,[ee(e),se(e),ae(e),re(e),ne(e),oe(e),t?he(e):null])},ee=e=>N("stsd",0,0,[C(1)],["video"===e.info.type?te(ke[e.info.codec],e):ie(ve[e.info.codec],e)]),te=(e,t)=>{return R(e,[Array(6).fill(0),T(1),T(0),T(0),Array(12).fill(0),T(t.info.width),T(t.info.height),C(4718592),C(4718592),C(0),T(1),Array(32).fill(0),T(24),(i=65535,b.setInt16(0,i,!1),[y[0],y[1]])],[Te[t.info.codec](t)]);var i},ie=(e,t)=>R(e,[Array(6).fill(0),T(1),T(0),T(0),C(0),T(t.info.numberOfChannels),T(16),T(0),T(0),z(t.info.sampleRate)],[Ce[t.info.codec](t)]),se=e=>N("stts",0,0,[C(e.timeToSampleTable.length),e.timeToSampleTable.map((e=>[C(e.sampleCount),C(e.sampleDelta)]))]),ae=e=>{if(e.samples.every((e=>"key"===e.type)))return null;let t=[...e.samples.entries()].filter((([,e])=>"key"===e.type));return N("stss",0,0,[C(t.length),t.map((([e])=>C(e+1)))])},re=e=>N("stsc",0,0,[C(e.compactlyCodedChunkTable.length),e.compactlyCodedChunkTable.map((e=>[C(e.firstChunk),C(e.samplesPerChunk),C(1)]))]),ne=e=>N("stsz",0,0,[C(0),C(e.samples.length),e.samples.map((e=>C(e.size)))]),oe=e=>e.finalizedChunks.length>0&&M(e.finalizedChunks).offset>=2**32?N("co64",0,0,[C(e.finalizedChunks.length),e.finalizedChunks.map((e=>S(e.offset)))]):N("stco",0,0,[C(e.finalizedChunks.length),e.finalizedChunks.map((e=>C(e.offset)))]),he=e=>N("ctts",0,0,[C(e.compositionTimeOffsetTable.length),e.compositionTimeOffsetTable.map((e=>[C(e.sampleCount),C(e.sampleCompositionTimeOffset)]))]),le=e=>R("mvex",null,e.map(de)),de=e=>N("trex",0,0,[C(e.id),C(1),C(0),C(0),C(0)]),fe=(e,t)=>R("moof",null,[ue(e),...t.map(pe)]),ue=e=>N("mfhd",0,0,[C(e)]),me=e=>{let t=0,i=0,s="delta"===e.type;return i|=+s,t|=s?1:2,t<<24|i<<16},pe=e=>R("traf",null,[ce(e),we(e),ge(e)]),ce=e=>{let t=0;t|=8,t|=16,t|=32,t|=131072;let i=e.currentChunk.samples[1]??e.currentChunk.samples[0],s={duration:i.timescaleUnitsToNextSample,size:i.size,flags:me(i)};return N("tfhd",0,131128,[C(e.id),C(s.duration),C(s.size),C(s.flags)])},we=e=>N("tfdt",1,0,[S(O(e.currentChunk.startTimestamp,e.timescale))]),ge=e=>{let t=e.currentChunk.samples.map((e=>e.timescaleUnitsToNextSample)),i=e.currentChunk.samples.map((e=>e.size)),s=e.currentChunk.samples.map(me),a=e.currentChunk.samples.map((t=>O(t.presentationTimestamp-t.decodeTimestamp,e.timescale))),r=new Set(t),n=new Set(i),o=new Set(s),h=new Set(a),l=2===o.size&&s[0]!==s[1],d=r.size>1,f=n.size>1,u=!l&&o.size>1,m=h.size>1||[...h].some((e=>0!==e)),p=0;return p|=1,p|=4*+l,p|=256*+d,p|=512*+f,p|=1024*+u,p|=2048*+m,N("trun",1,p,[C(e.currentChunk.samples.length),C(e.currentChunk.offset-e.currentChunk.moofOffset||0),l?C(s[0]):[],e.currentChunk.samples.map(((e,r)=>{return[d?C(t[r]):[],f?C(i[r]):[],u?C(s[r]):[],m?(n=a[r],b.setInt32(0,n,!1),[y[0],y[1],y[2],y[3]]):[]];var n}))])},ye=(e,t)=>N("tfra",1,0,[C(e.id),C(63),C(e.finalizedChunks.length),e.finalizedChunks.map((i=>[S(O(i.startTimestamp,e.timescale)),S(i.moofOffset),C(t+1),C(1),C(1)]))]),be=()=>N("mfro",0,0,[C(0)]),ke={avc:"avc1",hevc:"hvc1",vp9:"vp09",av1:"av01"},Te={avc:e=>e.info.decoderConfig&&R("avcC",[...new Uint8Array(e.info.decoderConfig.description)]),hevc:e=>e.info.decoderConfig&&R("hvcC",[...new Uint8Array(e.info.decoderConfig.description)]),vp9:e=>{if(!e.info.decoderConfig)return null;let t=e.info.decoderConfig;if(!t.colorSpace)throw new Error("'colorSpace' is required in the decoder config for VP9.");let i=t.codec.split("."),s=Number(i[1]),a=Number(i[2]),r=0+(Number(i[3])<<4)+Number(t.colorSpace.fullRange);return N("vpcC",1,0,[k(s),k(a),k(r),k(2),k(2),k(2),T(0)])},av1:()=>R("av1C",[129,0,0,0])},ve={aac:"mp4a",opus:"Opus"},Ce={aac:e=>{let t=new Uint8Array(e.info.decoderConfig.description);return N("esds",0,0,[C(58753152),k(32+t.byteLength),T(1),k(0),C(75530368),k(18+t.byteLength),k(64),k(21),v(0),C(130071),C(130071),C(92307584),k(t.byteLength),...t,C(109084800),k(1),k(2)])},opus:e=>{let t=3840,i=0;const s=e.info.decoderConfig?.description;if(s){if(s.byteLength<18)throw new TypeError("Invalid decoder description provided for Opus; must be at least 18 bytes long.");const e=ArrayBuffer.isView(s)?new DataView(s.buffer,s.byteOffset,s.byteLength):new DataView(s);t=e.getUint16(10,!0),i=e.getInt16(14,!0)}return R("dOps",[k(0),k(e.info.numberOfChannels),T(t),C(e.info.sampleRate),x(i),k(0)])}},Se=(Symbol("isTarget"),class{}),xe=class extends Se{constructor(){super(...arguments),this.buffer=null}},ze=class extends Se{constructor(e){if(super(),this.options=e,"object"!=typeof e)throw new TypeError("StreamTarget requires an options object to be passed to its constructor.");if(e.onData){if("function"!=typeof e.onData)throw new TypeError("options.onData, when provided, must be a function.");if(e.onData.length<2)throw new TypeError("options.onData, when provided, must be a function that takes in at least two arguments (data and position). Ignoring the position argument, which specifies the byte offset at which the data is to be written, can lead to broken outputs.")}if(void 0!==e.chunked&&"boolean"!=typeof e.chunked)throw new TypeError("options.chunked, when provided, must be a boolean.");if(void 0!==e.chunkSize&&(!Number.isInteger(e.chunkSize)||e.chunkSize<=0))throw new TypeError("options.chunkSize, when provided, must be a positive integer.")}},Ee=class extends Se{constructor(e,t){if(super(),this.stream=e,this.options=t,!(e instanceof FileSystemWritableFileStream))throw new TypeError("FileSystemWritableFileStreamTarget requires a FileSystemWritableFileStream instance.");if(void 0!==t&&"object"!=typeof t)throw new TypeError("FileSystemWritableFileStreamTarget's options, when provided, must be an object.");if(t&&void 0!==t.chunkSize&&(!Number.isInteger(t.chunkSize)||t.chunkSize<=0))throw new TypeError("options.chunkSize, when provided, must be a positive integer")}},Ae=class{constructor(){this.pos=0,n(this,d,new Uint8Array(8)),n(this,f,new DataView(r(this,d).buffer)),this.offsets=new WeakMap}seek(e){this.pos=e}writeU32(e){r(this,f).setUint32(0,e,!1),this.write(r(this,d).subarray(0,4))}writeU64(e){r(this,f).setUint32(0,Math.floor(e/2**32),!1),r(this,f).setUint32(4,e,!1),this.write(r(this,d).subarray(0,8))}writeAscii(e){for(let t=0;t<e.length;t++)r(this,f).setUint8(t%8,e.charCodeAt(t)),t%8==7&&this.write(r(this,d));e.length%8!=0&&this.write(r(this,d).subarray(0,e.length%8))}writeBox(e){if(this.offsets.set(e,this.pos),e.contents&&!e.children)this.writeBoxHeader(e,e.size??e.contents.byteLength+8),this.write(e.contents);else{let t=this.pos;if(this.writeBoxHeader(e,0),e.contents&&this.write(e.contents),e.children)for(let t of e.children)t&&this.writeBox(t);let i=this.pos,s=e.size??i-t;this.seek(t),this.writeBoxHeader(e,s),this.seek(i)}}writeBoxHeader(e,t){this.writeU32(e.largeSize?1:t),this.writeAscii(e.type),e.largeSize&&this.writeU64(t)}measureBoxHeader(e){return 8+(e.largeSize?8:0)}patchBox(e){let t=this.pos;this.seek(this.offsets.get(e)),this.writeBox(e),this.seek(t)}measureBox(e){if(e.contents&&!e.children){return this.measureBoxHeader(e)+e.contents.byteLength}{let t=this.measureBoxHeader(e);if(e.contents&&(t+=e.contents.byteLength),e.children)for(let i of e.children)i&&(t+=this.measureBox(i));return t}}};d=new WeakMap,f=new WeakMap;var Me,We,Oe=class extends Ae{constructor(e){super(),n(this,w),n(this,u,void 0),n(this,m,new ArrayBuffer(65536)),n(this,p,new Uint8Array(r(this,m))),n(this,c,0),o(this,u,e)}write(e){h(this,w,g).call(this,this.pos+e.byteLength),r(this,p).set(e,this.pos),this.pos+=e.byteLength,o(this,c,Math.max(r(this,c),this.pos))}finalize(){h(this,w,g).call(this,this.pos),r(this,u).buffer=r(this,m).slice(0,Math.max(r(this,c),this.pos))}};u=new WeakMap,m=new WeakMap,p=new WeakMap,c=new WeakMap,w=new WeakSet,g=function(e){let t=r(this,m).byteLength;for(;t<e;)t*=2;if(t===r(this,m).byteLength)return;let i=new ArrayBuffer(t),s=new Uint8Array(i);s.set(r(this,p),0),o(this,m,i),o(this,p,s)};var Be=class extends Ae{constructor(e){super(),n(this,Me,void 0),n(this,We,[]),o(this,Me,e)}write(e){r(this,We).push({data:e.slice(),start:this.pos}),this.pos+=e.byteLength}flush(){if(0===r(this,We).length)return;let e=[],t=[...r(this,We)].sort(((e,t)=>e.start-t.start));e.push({start:t[0].start,size:t[0].data.byteLength});for(let i=1;i<t.length;i++){let s=e[e.length-1],a=t[i];a.start<=s.start+s.size?s.size=Math.max(s.size,a.start+a.data.byteLength-s.start):e.push({start:a.start,size:a.data.byteLength})}for(let t of e){t.data=new Uint8Array(t.size);for(let e of r(this,We))t.start<=e.start&&e.start<t.start+t.size&&t.data.set(e.data,e.start-t.start);r(this,Me).options.onData?.(t.data,t.start)}r(this,We).length=0}finalize(){}};Me=new WeakMap,We=new WeakMap;var Ue,je,De,Ie,Re,Ne,Ve,Le,Fe,$e,Pe,He=class extends Ae{constructor(e){if(super(),n(this,Ie),n(this,Ne),n(this,Le),n(this,$e),n(this,Ue,void 0),n(this,je,void 0),n(this,De,[]),o(this,Ue,e),o(this,je,e.options?.chunkSize??16777216),!Number.isInteger(r(this,je))||r(this,je)<1024)throw new Error("Invalid StreamTarget options: chunkSize must be an integer not smaller than 1024.")}write(e){h(this,Ie,Re).call(this,e,this.pos),h(this,$e,Pe).call(this),this.pos+=e.byteLength}finalize(){h(this,$e,Pe).call(this,!0)}};Ue=new WeakMap,je=new WeakMap,De=new WeakMap,Ie=new WeakSet,Re=function(e,t){let i=r(this,De).findIndex((e=>e.start<=t&&t<e.start+r(this,je)));-1===i&&(i=h(this,Le,Fe).call(this,t));let s=r(this,De)[i],a=t-s.start,n=e.subarray(0,Math.min(r(this,je)-a,e.byteLength));s.data.set(n,a);let o={start:a,end:a+n.byteLength};if(h(this,Ne,Ve).call(this,s,o),0===s.written[0].start&&s.written[0].end===r(this,je)&&(s.shouldFlush=!0),r(this,De).length>2){for(let e=0;e<r(this,De).length-1;e++)r(this,De)[e].shouldFlush=!0;h(this,$e,Pe).call(this)}n.byteLength<e.byteLength&&h(this,Ie,Re).call(this,e.subarray(n.byteLength),t+n.byteLength)},Ne=new WeakSet,Ve=function(e,t){let i=0,s=e.written.length-1,a=-1;for(;i<=s;){let r=Math.floor(i+(s-i+1)/2);e.written[r].start<=t.start?(i=r+1,a=r):s=r-1}for(e.written.splice(a+1,0,t),(-1===a||e.written[a].end<t.start)&&a++;a<e.written.length-1&&e.written[a].end>=e.written[a+1].start;)e.written[a].end=Math.max(e.written[a].end,e.written[a+1].end),e.written.splice(a+1,1)},Le=new WeakSet,Fe=function(e){let t={start:Math.floor(e/r(this,je))*r(this,je),data:new Uint8Array(r(this,je)),written:[],shouldFlush:!1};return r(this,De).push(t),r(this,De).sort(((e,t)=>e.start-t.start)),r(this,De).indexOf(t)},$e=new WeakSet,Pe=function(e=!1){for(let t=0;t<r(this,De).length;t++){let i=r(this,De)[t];if(i.shouldFlush||e){for(let e of i.written)r(this,Ue).options.onData?.(i.data.subarray(e.start,e.end),i.start+e.start);r(this,De).splice(t--,1)}}};var _e,qe,Ge,Je,Ke,Qe,Xe,Ye,Ze,et,tt,it,st,at,rt,nt,ot,ht,lt,dt,ft,ut,mt,pt,ct,wt,gt,yt,bt,kt,Tt,vt,Ct,St,xt,zt,Et,At=class extends He{constructor(e){super(new ze({onData:(t,i)=>e.stream.write({type:"write",data:t,position:i}),chunkSize:e.options?.chunkSize}))}},Mt=1e3,Wt=["avc","hevc","vp9","av1"],Ot=["aac","opus"],Bt=["strict","offset","cross-track-offset"],Ut=class{constructor(e){if(n(this,st),n(this,rt),n(this,ot),n(this,lt),n(this,ft),n(this,mt),n(this,ct),n(this,gt),n(this,bt),n(this,Tt),n(this,Ct),n(this,xt),n(this,_e,void 0),n(this,qe,void 0),n(this,Ge,void 0),n(this,Je,void 0),n(this,Ke,null),n(this,Qe,null),n(this,Xe,Math.floor(Date.now()/1e3)+2082844800),n(this,Ye,[]),n(this,Ze,1),n(this,et,[]),n(this,tt,[]),n(this,it,!1),h(this,st,at).call(this,e),e.video=D(e.video),e.audio=D(e.audio),e.fastStart=D(e.fastStart),this.target=e.target,o(this,_e,{firstTimestampBehavior:"strict",...e}),e.target instanceof xe)o(this,qe,new Oe(e.target));else if(e.target instanceof ze)o(this,qe,e.target.options?.chunked?new He(e.target):new Be(e.target));else{if(!(e.target instanceof Ee))throw new Error(`Invalid target: ${e.target}`);o(this,qe,new At(e.target))}h(this,lt,dt).call(this),h(this,rt,nt).call(this)}addVideoChunk(e,t,i,s){if(!(e instanceof EncodedVideoChunk))throw new TypeError("addVideoChunk's first argument (sample) must be of type EncodedVideoChunk.");if(t&&"object"!=typeof t)throw new TypeError("addVideoChunk's second argument (meta), when provided, must be an object.");if(void 0!==i&&(!Number.isFinite(i)||i<0))throw new TypeError("addVideoChunk's third argument (timestamp), when provided, must be a non-negative real number.");if(void 0!==s&&!Number.isFinite(s))throw new TypeError("addVideoChunk's fourth argument (compositionTimeOffset), when provided, must be a real number.");let a=new Uint8Array(e.byteLength);e.copyTo(a),this.addVideoChunkRaw(a,e.type,i??e.timestamp,e.duration,t,s)}addVideoChunkRaw(e,t,i,s,a,n){if(!(e instanceof Uint8Array))throw new TypeError("addVideoChunkRaw's first argument (data) must be an instance of Uint8Array.");if("key"!==t&&"delta"!==t)throw new TypeError("addVideoChunkRaw's second argument (type) must be either 'key' or 'delta'.");if(!Number.isFinite(i)||i<0)throw new TypeError("addVideoChunkRaw's third argument (timestamp) must be a non-negative real number.");if(!Number.isFinite(s)||s<0)throw new TypeError("addVideoChunkRaw's fourth argument (duration) must be a non-negative real number.");if(a&&"object"!=typeof a)throw new TypeError("addVideoChunkRaw's fifth argument (meta), when provided, must be an object.");if(void 0!==n&&!Number.isFinite(n))throw new TypeError("addVideoChunkRaw's sixth argument (compositionTimeOffset), when provided, must be a real number.");if(h(this,xt,zt).call(this),!r(this,_e).video)throw new Error("No video track declared.");if("object"==typeof r(this,_e).fastStart&&r(this,Ke).samples.length===r(this,_e).fastStart.expectedVideoChunks)throw new Error(`Cannot add more video chunks than specified in 'fastStart' (${r(this,_e).fastStart.expectedVideoChunks}).`);let o=h(this,mt,pt).call(this,r(this,Ke),e,t,i,s,a,n);if("fragmented"===r(this,_e).fastStart&&r(this,Qe)){for(;r(this,tt).length>0&&r(this,tt)[0].decodeTimestamp<=o.decodeTimestamp;){let e=r(this,tt).shift();h(this,ct,wt).call(this,r(this,Qe),e)}o.decodeTimestamp<=r(this,Qe).lastDecodeTimestamp?h(this,ct,wt).call(this,r(this,Ke),o):r(this,et).push(o)}else h(this,ct,wt).call(this,r(this,Ke),o)}addAudioChunk(e,t,i){if(!(e instanceof EncodedAudioChunk))throw new TypeError("addAudioChunk's first argument (sample) must be of type EncodedAudioChunk.");if(t&&"object"!=typeof t)throw new TypeError("addAudioChunk's second argument (meta), when provided, must be an object.");if(void 0!==i&&(!Number.isFinite(i)||i<0))throw new TypeError("addAudioChunk's third argument (timestamp), when provided, must be a non-negative real number.");let s=new Uint8Array(e.byteLength);e.copyTo(s),this.addAudioChunkRaw(s,e.type,i??e.timestamp,e.duration,t)}addAudioChunkRaw(e,t,i,s,a){if(!(e instanceof Uint8Array))throw new TypeError("addAudioChunkRaw's first argument (data) must be an instance of Uint8Array.");if("key"!==t&&"delta"!==t)throw new TypeError("addAudioChunkRaw's second argument (type) must be either 'key' or 'delta'.");if(!Number.isFinite(i)||i<0)throw new TypeError("addAudioChunkRaw's third argument (timestamp) must be a non-negative real number.");if(!Number.isFinite(s)||s<0)throw new TypeError("addAudioChunkRaw's fourth argument (duration) must be a non-negative real number.");if(a&&"object"!=typeof a)throw new TypeError("addAudioChunkRaw's fifth argument (meta), when provided, must be an object.");if(h(this,xt,zt).call(this),!r(this,_e).audio)throw new Error("No audio track declared.");if("object"==typeof r(this,_e).fastStart&&r(this,Qe).samples.length===r(this,_e).fastStart.expectedAudioChunks)throw new Error(`Cannot add more audio chunks than specified in 'fastStart' (${r(this,_e).fastStart.expectedAudioChunks}).`);let n=h(this,mt,pt).call(this,r(this,Qe),e,t,i,s,a);if("fragmented"===r(this,_e).fastStart&&r(this,Ke)){for(;r(this,et).length>0&&r(this,et)[0].decodeTimestamp<=n.decodeTimestamp;){let e=r(this,et).shift();h(this,ct,wt).call(this,r(this,Ke),e)}n.decodeTimestamp<=r(this,Ke).lastDecodeTimestamp?h(this,ct,wt).call(this,r(this,Qe),n):r(this,tt).push(n)}else h(this,ct,wt).call(this,r(this,Qe),n)}finalize(){if(r(this,it))throw new Error("Cannot finalize a muxer more than once.");if("fragmented"===r(this,_e).fastStart){for(let e of r(this,et))h(this,ct,wt).call(this,r(this,Ke),e);for(let e of r(this,tt))h(this,ct,wt).call(this,r(this,Qe),e);h(this,Tt,vt).call(this,!1)}else r(this,Ke)&&h(this,bt,kt).call(this,r(this,Ke)),r(this,Qe)&&h(this,bt,kt).call(this,r(this,Qe));let e=[r(this,Ke),r(this,Qe)].filter(Boolean);if("in-memory"===r(this,_e).fastStart){let t;for(let i=0;i<2;i++){let i=L(e,r(this,Xe)),s=r(this,qe).measureBox(i);t=r(this,qe).measureBox(r(this,Je));let a=r(this,qe).pos+s+t;for(let e of r(this,Ye)){e.offset=a;for(let{data:i}of e.samples)a+=i.byteLength,t+=i.byteLength}if(a<2**32)break;t>=2**32&&(r(this,Je).largeSize=!0)}let i=L(e,r(this,Xe));r(this,qe).writeBox(i),r(this,Je).size=t,r(this,qe).writeBox(r(this,Je));for(let e of r(this,Ye))for(let t of e.samples)r(this,qe).write(t.data),t.data=null}else if("fragmented"===r(this,_e).fastStart){let t=r(this,qe).pos,i=(e=>R("mfra",null,[...e.map(ye),be()]))(e);r(this,qe).writeBox(i);let s=r(this,qe).pos-t;r(this,qe).seek(r(this,qe).pos-4),r(this,qe).writeU32(s)}else{let t=r(this,qe).offsets.get(r(this,Je)),i=r(this,qe).pos-t;r(this,Je).size=i,r(this,Je).largeSize=i>=2**32,r(this,qe).patchBox(r(this,Je));let s=L(e,r(this,Xe));if("object"==typeof r(this,_e).fastStart){r(this,qe).seek(r(this,Ge)),r(this,qe).writeBox(s);let e=t-r(this,qe).pos;r(this,qe).writeBox({type:"free",size:e})}else r(this,qe).writeBox(s)}h(this,Ct,St).call(this),r(this,qe).finalize(),o(this,it,!0)}};return _e=new WeakMap,qe=new WeakMap,Ge=new WeakMap,Je=new WeakMap,Ke=new WeakMap,Qe=new WeakMap,Xe=new WeakMap,Ye=new WeakMap,Ze=new WeakMap,et=new WeakMap,tt=new WeakMap,it=new WeakMap,st=new WeakSet,at=function(e){if("object"!=typeof e)throw new TypeError("The muxer requires an options object to be passed to its constructor.");if(!(e.target instanceof Se))throw new TypeError("The target must be provided and an instance of Target.");if(e.video){if(!Wt.includes(e.video.codec))throw new TypeError(`Unsupported video codec: ${e.video.codec}`);if(!Number.isInteger(e.video.width)||e.video.width<=0)throw new TypeError(`Invalid video width: ${e.video.width}. Must be a positive integer.`);if(!Number.isInteger(e.video.height)||e.video.height<=0)throw new TypeError(`Invalid video height: ${e.video.height}. Must be a positive integer.`);const t=e.video.rotation;if("number"==typeof t&&![0,90,180,270].includes(t))throw new TypeError(`Invalid video rotation: ${t}. Has to be 0, 90, 180 or 270.`);if(Array.isArray(t)&&(9!==t.length||t.some((e=>"number"!=typeof e))))throw new TypeError(`Invalid video transformation matrix: ${t.join()}`);if(void 0!==e.video.frameRate&&(!Number.isInteger(e.video.frameRate)||e.video.frameRate<=0))throw new TypeError(`Invalid video frame rate: ${e.video.frameRate}. Must be a positive integer.`)}if(e.audio){if(!Ot.includes(e.audio.codec))throw new TypeError(`Unsupported audio codec: ${e.audio.codec}`);if(!Number.isInteger(e.audio.numberOfChannels)||e.audio.numberOfChannels<=0)throw new TypeError(`Invalid number of audio channels: ${e.audio.numberOfChannels}. Must be a positive integer.`);if(!Number.isInteger(e.audio.sampleRate)||e.audio.sampleRate<=0)throw new TypeError(`Invalid audio sample rate: ${e.audio.sampleRate}. Must be a positive integer.`)}if(e.firstTimestampBehavior&&!Bt.includes(e.firstTimestampBehavior))throw new TypeError(`Invalid first timestamp behavior: ${e.firstTimestampBehavior}`);if("object"==typeof e.fastStart){if(e.video){if(void 0===e.fastStart.expectedVideoChunks)throw new TypeError("'fastStart' is an object but is missing property 'expectedVideoChunks'.");if(!Number.isInteger(e.fastStart.expectedVideoChunks)||e.fastStart.expectedVideoChunks<0)throw new TypeError("'expectedVideoChunks' must be a non-negative integer.")}if(e.audio){if(void 0===e.fastStart.expectedAudioChunks)throw new TypeError("'fastStart' is an object but is missing property 'expectedAudioChunks'.");if(!Number.isInteger(e.fastStart.expectedAudioChunks)||e.fastStart.expectedAudioChunks<0)throw new TypeError("'expectedAudioChunks' must be a non-negative integer.")}}else if(![!1,"in-memory","fragmented"].includes(e.fastStart))throw new TypeError("'fastStart' option must be false, 'in-memory', 'fragmented' or an object.")},rt=new WeakSet,nt=function(){var e;if(r(this,qe).writeBox((e={holdsAvc:"avc"===r(this,_e).video?.codec,fragmented:"fragmented"===r(this,_e).fastStart}).fragmented?R("ftyp",[A("iso5"),C(512),A("iso5"),A("iso6"),A("mp41")]):R("ftyp",[A("isom"),C(512),A("isom"),e.holdsAvc?A("avc1"):[],A("mp41")])),o(this,Ge,r(this,qe).pos),"in-memory"===r(this,_e).fastStart)o(this,Je,V(!1));else if("fragmented"===r(this,_e).fastStart);else{if("object"==typeof r(this,_e).fastStart){let e=h(this,ot,ht).call(this);r(this,qe).seek(r(this,qe).pos+e)}o(this,Je,V(!0)),r(this,qe).writeBox(r(this,Je))}h(this,Ct,St).call(this)},ot=new WeakSet,ht=function(){if("object"!=typeof r(this,_e).fastStart)return;let e=0,t=[r(this,_e).fastStart.expectedVideoChunks,r(this,_e).fastStart.expectedAudioChunks];for(let i of t)i&&(e+=8*Math.ceil(2/3*i),e+=4*i,e+=12*Math.ceil(2/3*i),e+=4*i,e+=8*i);return e+=4096,e},lt=new WeakSet,dt=function(){if(r(this,_e).video&&o(this,Ke,{id:1,info:{type:"video",codec:r(this,_e).video.codec,width:r(this,_e).video.width,height:r(this,_e).video.height,rotation:r(this,_e).video.rotation??0,decoderConfig:null},timescale:r(this,_e).video.frameRate??57600,samples:[],finalizedChunks:[],currentChunk:null,firstDecodeTimestamp:void 0,lastDecodeTimestamp:-1,timeToSampleTable:[],compositionTimeOffsetTable:[],lastTimescaleUnits:null,lastSample:null,compactlyCodedChunkTable:[]}),r(this,_e).audio&&(o(this,Qe,{id:r(this,_e).video?2:1,info:{type:"audio",codec:r(this,_e).audio.codec,numberOfChannels:r(this,_e).audio.numberOfChannels,sampleRate:r(this,_e).audio.sampleRate,decoderConfig:null},timescale:r(this,_e).audio.sampleRate,samples:[],finalizedChunks:[],currentChunk:null,firstDecodeTimestamp:void 0,lastDecodeTimestamp:-1,timeToSampleTable:[],compositionTimeOffsetTable:[],lastTimescaleUnits:null,lastSample:null,compactlyCodedChunkTable:[]}),"aac"===r(this,_e).audio.codec)){let e=h(this,ft,ut).call(this,2,r(this,_e).audio.sampleRate,r(this,_e).audio.numberOfChannels);r(this,Qe).info.decoderConfig={codec:r(this,_e).audio.codec,description:e,numberOfChannels:r(this,_e).audio.numberOfChannels,sampleRate:r(this,_e).audio.sampleRate}}},ft=new WeakSet,ut=function(e,t,i){let s=[96e3,88200,64e3,48e3,44100,32e3,24e3,22050,16e3,12e3,11025,8e3,7350].indexOf(t),a=i,r="";r+=e.toString(2).padStart(5,"0"),r+=s.toString(2).padStart(4,"0"),15===s&&(r+=t.toString(2).padStart(24,"0")),r+=a.toString(2).padStart(4,"0");let n=8*Math.ceil(r.length/8);r=r.padEnd(n,"0");let o=new Uint8Array(r.length/8);for(let e=0;e<r.length;e+=8)o[e/8]=parseInt(r.slice(e,e+8),2);return o},mt=new WeakSet,pt=function(e,t,i,s,a,r,n){let o=s/1e6,l=(s-(n??0))/1e6,d=a/1e6,f=h(this,gt,yt).call(this,o,l,e);return o=f.presentationTimestamp,l=f.decodeTimestamp,r?.decoderConfig&&(null===e.info.decoderConfig?e.info.decoderConfig=r.decoderConfig:Object.assign(e.info.decoderConfig,r.decoderConfig)),{presentationTimestamp:o,decodeTimestamp:l,duration:d,data:t,size:t.byteLength,type:i,timescaleUnitsToNextSample:O(d,e.timescale)}},ct=new WeakSet,wt=function(e,t){"fragmented"!==r(this,_e).fastStart&&e.samples.push(t);const i=O(t.presentationTimestamp-t.decodeTimestamp,e.timescale);if(null!==e.lastTimescaleUnits){let s=O(t.decodeTimestamp,e.timescale,!1),a=Math.round(s-e.lastTimescaleUnits);if(e.lastTimescaleUnits+=a,e.lastSample.timescaleUnitsToNextSample=a,"fragmented"!==r(this,_e).fastStart){let t=M(e.timeToSampleTable);1===t.sampleCount?(t.sampleDelta=a,t.sampleCount++):t.sampleDelta===a?t.sampleCount++:(t.sampleCount--,e.timeToSampleTable.push({sampleCount:2,sampleDelta:a}));const s=M(e.compositionTimeOffsetTable);s.sampleCompositionTimeOffset===i?s.sampleCount++:e.compositionTimeOffsetTable.push({sampleCount:1,sampleCompositionTimeOffset:i})}}else e.lastTimescaleUnits=0,"fragmented"!==r(this,_e).fastStart&&(e.timeToSampleTable.push({sampleCount:1,sampleDelta:O(t.duration,e.timescale)}),e.compositionTimeOffsetTable.push({sampleCount:1,sampleCompositionTimeOffset:i}));e.lastSample=t;let s=!1;if(e.currentChunk){let i=t.presentationTimestamp-e.currentChunk.startTimestamp;if("fragmented"===r(this,_e).fastStart){e===(r(this,Ke)??r(this,Qe))&&"key"===t.type&&i>=1&&(s=!0,h(this,Tt,vt).call(this))}else s=i>=.5}else s=!0;s&&(e.currentChunk&&h(this,bt,kt).call(this,e),e.currentChunk={startTimestamp:t.presentationTimestamp,samples:[]}),e.currentChunk.samples.push(t)},gt=new WeakSet,yt=function(e,t,i){const s="strict"===r(this,_e).firstTimestampBehavior,a=-1===i.lastDecodeTimestamp;if(s&&a&&0!==t)throw new Error(`The first chunk for your media track must have a timestamp of 0 (received DTS=${t}).Non-zero first timestamps are often caused by directly piping frames or audio data from a MediaStreamTrack into the encoder. Their timestamps are typically relative to the age of thedocument, which is probably what you want.\n\nIf you want to offset all timestamps of a track such that the first one is zero, set firstTimestampBehavior: 'offset' in the options.\n`);if("offset"===r(this,_e).firstTimestampBehavior||"cross-track-offset"===r(this,_e).firstTimestampBehavior){let s;void 0===i.firstDecodeTimestamp&&(i.firstDecodeTimestamp=t),s="offset"===r(this,_e).firstTimestampBehavior?i.firstDecodeTimestamp:Math.min(r(this,Ke)?.firstDecodeTimestamp??1/0,r(this,Qe)?.firstDecodeTimestamp??1/0),t-=s,e-=s}if(t<i.lastDecodeTimestamp)throw new Error(`Timestamps must be monotonically increasing (DTS went from ${1e6*i.lastDecodeTimestamp} to ${1e6*t}).`);return i.lastDecodeTimestamp=t,{presentationTimestamp:e,decodeTimestamp:t}},bt=new WeakSet,kt=function(e){if("fragmented"===r(this,_e).fastStart)throw new Error("Can't finalize individual chunks if 'fastStart' is set to 'fragmented'.");if(e.currentChunk)if(e.finalizedChunks.push(e.currentChunk),r(this,Ye).push(e.currentChunk),0!==e.compactlyCodedChunkTable.length&&M(e.compactlyCodedChunkTable).samplesPerChunk===e.currentChunk.samples.length||e.compactlyCodedChunkTable.push({firstChunk:e.finalizedChunks.length,samplesPerChunk:e.currentChunk.samples.length}),"in-memory"!==r(this,_e).fastStart){e.currentChunk.offset=r(this,qe).pos;for(let t of e.currentChunk.samples)r(this,qe).write(t.data),t.data=null;h(this,Ct,St).call(this)}else e.currentChunk.offset=0},Tt=new WeakSet,vt=function(e=!0){if("fragmented"!==r(this,_e).fastStart)throw new Error("Can't finalize a fragment unless 'fastStart' is set to 'fragmented'.");let t=[r(this,Ke),r(this,Qe)].filter((e=>e&&e.currentChunk));if(0===t.length)return;let i=(s=this,a=Ze,{set _(e){o(s,a,e,n)},get _(){return r(s,a,l)}})._++;var s,a,n,l;if(1===i){let e=L(t,r(this,Xe),!0);r(this,qe).writeBox(e)}let d=r(this,qe).pos,f=fe(i,t);r(this,qe).writeBox(f);{let e=V(!1),i=0;for(let e of t)for(let t of e.currentChunk.samples)i+=t.size;let s=r(this,qe).measureBox(e)+i;s>=2**32&&(e.largeSize=!0,s=r(this,qe).measureBox(e)+i),e.size=s,r(this,qe).writeBox(e)}for(let e of t){e.currentChunk.offset=r(this,qe).pos,e.currentChunk.moofOffset=d;for(let t of e.currentChunk.samples)r(this,qe).write(t.data),t.data=null}let u=r(this,qe).pos;r(this,qe).seek(r(this,qe).offsets.get(f));let m=fe(i,t);r(this,qe).writeBox(m),r(this,qe).seek(u);for(let e of t)e.finalizedChunks.push(e.currentChunk),r(this,Ye).push(e.currentChunk),e.currentChunk=null;e&&h(this,Ct,St).call(this)},Ct=new WeakSet,St=function(){r(this,qe)instanceof Be&&r(this,qe).flush()},xt=new WeakSet,zt=function(){if(r(this,it))throw new Error("Cannot add new video or audio chunks after the file has been finalized.")},Et=l,((a,r,n,o)=>{if(r&&"object"==typeof r||"function"==typeof r)for(let h of i(r))s.call(a,h)||h===n||e(a,h,{get:()=>r[h],enumerable:!(o=t(r,h))||o.enumerable});return a})(e({},"__esModule",{value:!0}),Et)})();"object"==typeof module&&"object"==typeof module.exports&&Object.assign(module.exports,Mp4Muxer);
+//# sourceMappingURL=/sm/2d65509620dc68a5b97bc1c90bf2b2165147c6e410efb5392995ca68167616ab.map
+</script>
+
+<script>
+"use strict";
+
+/* ============ 存储 ============ */
+const LS_KEY='mesh_gradient_studio';
+
+const LS_IMG_KEY=LS_KEY+'_overlay_img';
+
+function loadState(){
+  try{
+    const raw=localStorage.getItem(LS_KEY);
+    if(!raw)return null;
+    const d=JSON.parse(raw);
+    return d;
+  }catch(e){return null;}
+}
+function saveState(){
+  const builtinIds=new Set(BUILTIN_PRESETS.map(b=>b.id));
+  const currentBuiltinIds=new Set(presets.filter(p=>p.builtin).map(p=>p.id));
+  const removedBuiltinIds=[...builtinIds].filter(id=>!currentBuiltinIds.has(id));
+  const renamedBuiltins={};
+  presets.forEach(p=>{
+    if(p.builtin&&builtinIds.has(p.id)){
+      const orig=BUILTIN_PRESETS.find(b=>b.id===p.id);
+      if(orig&&orig.name!==p.name)renamedBuiltins[p.id]=p.name;
+    }
+  });
+
+  // overlay imageData 单独存储，避免撑爆主 snapshot
+  const overlayImg=state.overlay?.imageData||null;
+  try{ localStorage.setItem(LS_IMG_KEY, overlayImg||''); }catch(e){}
+  const stateCopy=JSON.parse(JSON.stringify(state));
+  if(stateCopy.overlay)stateCopy.overlay.imageData=null;
+
+  const snapshot={
+    current: stateCopy,
+    presets: presets.filter(p=>!p.builtin),
+    removedBuiltinIds: removedBuiltinIds,
+    renamedBuiltins: renamedBuiltins,
+    activeId: activePresetId,
+  };
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); }catch(e){}
+}
+
+/* ============ URL参数功能 ============ */
+function encodeToUrl(obj){
+  try{
+    const json=JSON.stringify(obj);
+    const b64=btoa(unescape(encodeURIComponent(json)));
+    return b64;
+  }catch(e){return null;}
+}
+function decodeFromUrl(str){
+  try{
+    const json=decodeURIComponent(escape(atob(str)));
+    return JSON.parse(json);
+  }catch(e){return null;}
+}
+function getUrlFromState(){
+  const data={
+    gradient: state.gradient,
+    presets: presets.filter(p=>!p.builtin),
+    activeId: activePresetId,
+  };
+  const encoded=encodeToUrl(data);
+  if(!encoded)return null;
+  const url=new URL(window.location.href);
+  url.searchParams.set('cfg',encoded);
+  return url.toString();
+}
+function syncUrl(){
+  const url=getUrlFromState();
+  if(url){
+    window.history.replaceState({},'',url);
+  }
+}
+function loadFromUrl(){
+  const params=new URLSearchParams(window.location.search);
+  const encoded=params.get('cfg');
+  if(!encoded)return null;
+  return decodeFromUrl(encoded);
+}
+function copyUrlToClipboard(){
+  const url=getUrlFromState();
+  if(!url){toast('获取链接失败');return;}
+  // 同时更新地址栏
+  window.history.replaceState({},'',url);
+  navigator.clipboard.writeText(url).then(()=>{
+    toast('已复制带配置的链接');
+  }).catch(()=>{
+    // Fallback
+    const ta=document.createElement('textarea');
+    ta.value=url;document.body.appendChild(ta);
+    ta.select();document.execCommand('copy');document.body.removeChild(ta);
+    toast('已复制带配置的链接');
+  });
+}
+
+/* ============ 默认状态 ============ */
+const defaultState = () => ({
+  gradient:{
+    type:'mesh',
+    mesh:[
+      {x:0.22,y:0.28,color:'#ffffff',opacity:1,visible:true},
+      {x:0.28,y:0.78,color:'#0663ff',opacity:0.4,visible:true},
+      {x:0.74,y:0.74,color:'#ffffff',opacity:1,visible:true},
+      {x:0.70,y:0.22,color:'#febb57',opacity:0.2,visible:true},
+    ],
+    flow:true,
+    flowSpeed:1.6,
+    turbulence:1.25,
+    blend:0.66,
+    noise:20,
+  },
+  exportScale:2,
+  exportFormat:'png',
+  exportDuration:6,
+  exportLoop:false,
+  videoFormat:'webm',
+  codeTab:'canvas',
+  overlay:{
+    mode:'none',
+    text:'火山引擎云搜索服务',
+    hidden:false,
+    imageData:null,
+    scale:1,
+  },
+});
+
+const SIZE_TABLE = {
+  0:{w:854,h:480,label:'480p'},
+  1:{w:1280,h:720,label:'720p'},
+  2:{w:1920,h:1080,label:'1080p'},
+  3:{w:2560,h:1440,label:'1440p'},
+  4:{w:3840,h:2160,label:'4K'},
+};
+
+/* ============ 颜色选择器 ============ */
+let colorPicker=null;
+let colorPickerTarget=null;
+let colorPickerCallback=null;
+
+function hsvToRgb(h,s,v){
+  let r,g,b;
+  const i=Math.floor(h*6);
+  const f=h*6-i;
+  const p=v*(1-s);
+  const q=v*(1-f*s);
+  const t=v*(1-(1-f)*s);
+  switch(i%6){
+    case 0:r=v,g=t,b=p;break;
+    case 1:r=q,g=v,b=p;break;
+    case 2:r=p,g=v,b=t;break;
+    case 3:r=p,g=q,b=v;break;
+    case 4:r=t,g=p,b=v;break;
+    case 5:r=v,g=p,b=q;break;
+  }
+  return {r:Math.round(r*255),g:Math.round(g*255),b:Math.round(b*255)};
+}
+
+function rgbToHsv(r,g,b){
+  r/=255;g/=255;b/=255;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b);
+  const d=max-min;
+  let h=0;
+  if(d!==0){
+    if(max===r)h=((g-b)/d+(g<b?6:0));
+    else if(max===g)h=(b)/d+2;
+    else h=(r)/d+4;
+    h/=6;
+  }
+  const s=max===0?0:d/max;
+  const v=max;
+  return {h,s,v};
+}
+
+function rgbToHex(r,g,b){
+  return '#'+[r,g,b].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+
+function hexToHsv(hex){
+  const {r,g,b}=hexToRgb(hex);
+  return rgbToHsv(r,g,b);
+}
+
+function createColorPicker(){
+  if(colorPicker)return colorPicker;
+  
+  const pop=document.createElement('div');
+  pop.className='color-picker-popup';
+  pop.innerHTML=`
+    <div class="preview-row">
+      <div class="preview-box"><div class="preview-fill"></div></div>
+      <div class="hex-row">
+        <input type="text" class="hex-input" maxlength="7" placeholder="#FFFFFF">
+      </div>
+    </div>
+    <div class="hue-bar">
+      <div class="hue-cursor"></div>
+    </div>
+    <div class="sat-val-area">
+      <div class="sat-bg">
+        <div class="sat-gradient"></div>
+        <div class="picker-cursor"></div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="cancel-btn">取消</button>
+      <button class="confirm-btn primary">确定</button>
+    </div>
+  `;
+  document.body.appendChild(pop);
+  
+  const previewFill=pop.querySelector('.preview-fill');
+  const hexInput=pop.querySelector('.hex-input');
+  const pickerCursor=pop.querySelector('.picker-cursor');
+  const satBg=pop.querySelector('.sat-bg');
+  const satGradient=pop.querySelector('.sat-gradient');
+  const hueCursor=pop.querySelector('.hue-cursor');
+  const hueBar=pop.querySelector('.hue-bar');
+  const cancelBtn=pop.querySelector('.cancel-btn');
+  const confirmBtn=pop.querySelector('.confirm-btn');
+  
+  let currentH=0,currentS=1,currentV=1;
+  let originalColor='#ffffff';
+  
+  function updateSatBg(){
+    const c=hsvToRgb(currentH,1,1);
+    satGradient.style.background=`linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, rgb(${c.r},${c.g},${c.b}))`;
+  }
+  
+  function updatePreview(){
+    const c=hsvToRgb(currentH,currentS,currentV);
+    const hex=rgbToHex(c.r,c.g,c.b);
+    previewFill.style.backgroundColor=hex;
+    hexInput.value=hex.toUpperCase();
+    pickerCursor.style.left=(currentS*100)+'%';
+    pickerCursor.style.top=((1-currentV)*100)+'%';
+    hueCursor.style.left=(currentH*100)+'%';
+  }
+  
+  function setPosition(anchor){
+    const rect=anchor.getBoundingClientRect();
+    const popW=260,popH=300;
+    let left=rect.right+12;
+    let top=rect.top;
+    if(left+popW>window.innerWidth-20)left=rect.left-popW-12;
+    if(left<20)left=20;
+    if(top+popH>window.innerHeight-20)top=window.innerHeight-popH-20;
+    if(top<20)top=20;
+    pop.style.left=left+'px';
+    pop.style.top=top+'px';
+  }
+  
+  function show(anchor,initialColor,onConfirm){
+    colorPickerTarget=anchor;
+    colorPickerCallback=onConfirm;
+    originalColor=initialColor;
+    const hsv=hexToHsv(initialColor);
+    currentH=hsv.h;currentS=hsv.s;currentV=hsv.v;
+    updateSatBg();
+    updatePreview();
+    pop.classList.add('show');
+    requestAnimationFrame(()=>setPosition(anchor));
+  }
+  
+  function hide(){
+    pop.classList.remove('show');
+    colorPickerTarget=null;
+    colorPickerCallback=null;
+  }
+  
+  let pickerDragging=false;
+  let hueDragging=false;
+  
+  function updatePickerFromEvent(e){
+    const rect=satBg.getBoundingClientRect();
+    const x=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+    const y=Math.max(0,Math.min(1,(e.clientY-rect.top)/rect.height));
+    currentS=x;
+    currentV=1-y;
+    updatePreview();
+  }
+  
+  function updateHueFromEvent(e){
+    const rect=hueBar.getBoundingClientRect();
+    currentH=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+    updateSatBg();
+    updatePreview();
+  }
+  
+  satBg.addEventListener('mousedown',e=>{
+    pickerDragging=true;
+    updatePickerFromEvent(e);
+  });
+  window.addEventListener('mousemove',e=>{
+    if(pickerDragging)updatePickerFromEvent(e);
+    if(hueDragging)updateHueFromEvent(e);
+  });
+  window.addEventListener('mouseup',()=>{
+    pickerDragging=false;hueDragging=false;
+  });
+  
+  hueBar.addEventListener('mousedown',e=>{
+    hueDragging=true;
+    updateHueFromEvent(e);
+  });
+  
+  hexInput.addEventListener('input',e=>{
+    let v=e.target.value.trim().replace('#','');
+    if(/^[0-9a-fA-F]{6}$/.test(v)){
+      const rgb=hexToRgb('#'+v);
+      const hsv=rgbToHsv(rgb.r,rgb.g,rgb.b);
+      currentH=hsv.h;currentS=hsv.s;currentV=hsv.v;
+      updateSatBg();
+      updatePreview();
+    }
+  });
+  hexInput.addEventListener('keydown',e=>{
+    if(e.key==='Enter')confirmBtn.click();
+    if(e.key==='Escape')cancelBtn.click();
+  });
+  
+  cancelBtn.addEventListener('click',()=>{
+    if(colorPickerCallback)colorPickerCallback(originalColor);
+    hide();
+  });
+  confirmBtn.addEventListener('click',()=>{
+    const c=hsvToRgb(currentH,currentS,currentV);
+    const hex=rgbToHex(c.r,c.g,c.b);
+    if(colorPickerCallback)colorPickerCallback(hex);
+    hide();
+  });
+  
+  // Click outside to close
+  document.addEventListener('mousedown',e=>{
+    if(pop.classList.contains('show')&&!pop.contains(e.target)){
+      if(e.target.closest('.stop-row'))return; // Don't close if clicking on a stop row
+      if(colorPickerCallback)colorPickerCallback(originalColor);
+      hide();
+    }
+  });
+  
+  colorPicker={show,hide};
+  return colorPicker;
+}
+
+function showColorPicker(anchor,initialColor,onConfirm){
+  if(!colorPicker)createColorPicker();
+  colorPicker.show(anchor,initialColor,onConfirm);
+}
+
+function hideColorPicker(){
+  if(colorPicker)colorPicker.hide();
+}
+
+/* ============ 预设 ============ */
+let presets=[];
+let activePresetId=null;
+let renamingPresetId=null;
+let savingCurrent=false;
+
+function genId(){return 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);}
+
+const BUILTIN_PRESETS=[
+  {
+    id:'p_1787566741425_d6ib2',
+    name:'淡蓝色渐变',
+    builtin:true,
+    data:{
+      gradient:{
+        type:'mesh',
+        mesh:[
+          {x:0.22,y:0.28,color:'#ffffff',opacity:1,visible:true},
+          {x:0.28,y:0.78,color:'#0663ff',opacity:0.4,visible:true},
+          {x:0.74,y:0.74,color:'#ffffff',opacity:1,visible:true},
+          {x:0.70,y:0.22,color:'#febb57',opacity:0.2,visible:true},
+        ],
+        flow:true,
+        flowSpeed:1.6,
+        turbulence:1.25,
+        blend:0.66,
+        noise:20,
+      }
+    }
+  }
+];
+
+function cloneBuiltins(){
+  return BUILTIN_PRESETS.map(p=>JSON.parse(JSON.stringify(p)));
+}
+
+/* ============ 初始化 ============ */
+let state=defaultState();
+let dpr=Math.max(1,window.devicePixelRatio||1);
+let animTime=0;
+let lastTs=performance.now();
+let editingMesh=false;
+let dragIdx=-1;
+
+function init(){
+  // 优先级：URL参数 > localStorage > 默认
+  const urlData=loadFromUrl();
+  const saved=loadState();
+  
+  if(urlData){
+    // 从URL加载配置
+    state={...defaultState(),...(saved?.current||{})};
+    if(urlData.gradient){
+      state.gradient={...defaultState().gradient,...urlData.gradient};
+      if(state.gradient.mesh){
+        state.gradient.mesh.forEach(p=>{
+          if(p.opacity==null)p.opacity=1;
+          if(p.visible==null)p.visible=true;
+        });
+      }
+    }
+    if(state.videoFormat==null)state.videoFormat='webm';
+    if(state.exportLoop==null)state.exportLoop=false;
+    // 兼容旧版：480p(0)/720p(1) 已移除，重置为 1080p(2)
+    if(state.exportScale==null||state.exportScale<2)state.exportScale=2;
+    // 兼容旧版：15s/30s 已移除，重置为 6s
+    if(![3,6,10].includes(state.exportDuration))state.exportDuration=6;
+    // 加载预设：内置 + URL中的自定义预设
+    presets=cloneBuiltins();
+    if(urlData.presets?.length){
+      presets=[...cloneBuiltins(),...urlData.presets];
+    }
+    activePresetId=urlData.activeId||null;
+    toast('已从链接加载配置');
+  } else if(saved){
+    // 从localStorage加载
+    state={...defaultState(),...(saved.current||{})};
+    state.gradient={...defaultState().gradient,...(saved.current?.gradient||{})};
+    if(state.gradient.mesh){
+      state.gradient.mesh.forEach(p=>{
+        if(p.opacity==null)p.opacity=1;
+        if(p.visible==null)p.visible=true;
+      });
+    }
+    if(state.videoFormat==null)state.videoFormat='webm';
+    if(state.exportLoop==null)state.exportLoop=false;
+    // 兼容旧版：480p(0)/720p(1) 已移除，重置为 1080p(2)
+    if(state.exportScale==null||state.exportScale<2)state.exportScale=2;
+    // 兼容旧版：15s/30s 已移除，重置为 6s
+    if(![3,6,10].includes(state.exportDuration))state.exportDuration=6;
+    const removedBuiltinIds=new Set(saved.removedBuiltinIds||[]);
+    const renamedBuiltins=saved.renamedBuiltins||{};
+    const activeBuiltinPresets=cloneBuiltins().filter(p=>!removedBuiltinIds.has(p.id));
+    activeBuiltinPresets.forEach(p=>{
+      if(renamedBuiltins[p.id])p.name=renamedBuiltins[p.id];
+    });
+    const savedCustomPresets=(saved.presets||[]).filter(p=>{
+      // 清理已不存在的内置预设 id（旧版本遗留）
+      return !(p.builtin&&p.id==='builtin_default');
+    });
+    presets=[...activeBuiltinPresets,...savedCustomPresets];
+    presets.forEach(pr=>{
+      if(pr.data?.gradient?.mesh){
+        pr.data.gradient.mesh.forEach(p=>{
+          if(p.opacity==null)p.opacity=1;
+          if(p.visible==null)p.visible=true;
+        });
+      }
+    });
+    activePresetId=saved.activeId||null;
+  } else {
+    presets=cloneBuiltins();
+    activePresetId='p_1787566741425_d6ib2';
+  }
+
+  // 恢复 overlay 状态（兼容旧版无 overlay 字段）
+  if(!state.overlay)state.overlay={...defaultState().overlay};
+  if(state.overlay.mode==null)state.overlay.mode='none';
+  if(state.overlay.text==null)state.overlay.text='火山引擎云搜索服务';
+  if(state.overlay.hidden==null)state.overlay.hidden=false;
+  if(state.overlay.scale==null)state.overlay.scale=1;
+  // 恢复图片数据
+  try{
+    const imgData=localStorage.getItem(LS_IMG_KEY);
+    if(imgData)state.overlay.imageData=imgData;
+  }catch(e){}
+  preloadOverlayImage();
+
+  renderPresets();
+  refreshUI();
+  bindEvents();
+  requestAnimationFrame(loop);
+}
+
+/* ============ 工具函数 ============ */
+const $=id=>document.getElementById(id);
+const canvas=$('preview');
+const ctx=canvas.getContext('2d');
+
+function hexToRgb(h){
+  h=h.replace('#','');
+  if(h.length===3)h=h.split('').map(c=>c+c).join('');
+  if(h.length!==6)return {r:0,g:0,b:0};
+  const n=parseInt(h,16);
+  return {r:(n>>16)&255,g:(n>>8)&255,b:n&255};
+}
+function rgba(c,a){const {r,g,b}=hexToRgb(c);return `rgba(${r},${g},${b},${a})`;}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+
+/* ============ 湍流噪声 ============ */
+function turbulence(x,y,t,scale){
+  let v=0, amp=1, freq=1, norm=0;
+  const octaves=4;
+  const phase1 = Math.PI * 0.3;
+  const phase2 = Math.PI * 0.7;
+  for(let i=0;i<octaves;i++){
+    // 使用单频 sin 叠加，避免乘积形式，曲线更平滑
+    const tScaled = t * scale * (0.4 + i * 0.12);
+    v += amp * (
+      Math.sin(x*freq*1.3 + y*freq*0.9 + tScaled + phase1 + i*0.7) * 0.5 +
+      Math.cos(x*freq*0.8 - y*freq*1.1 + tScaled*0.9 + phase2 + i*1.3) * 0.3 +
+      Math.sin((x+y)*freq + tScaled*1.1 + i*2.3) * 0.2
+    );
+    norm += amp;
+    amp *= 0.55;
+    freq *= 1.83;
+  }
+  return v/norm;
+}
+
+/* ============ 渲染 ============ */
+function drawTo(c,w,h,t){
+  const g=state.gradient;
+  c.clearRect(0,0,w,h);
+
+  const firstVisible=g.mesh.find(p=>p.visible!==false);
+  c.fillStyle=firstVisible?firstVisible.color:(g.mesh[0]?g.mesh[0].color:'#333');
+  c.fillRect(0,0,w,h);
+
+  g.mesh.forEach((p,i)=>{
+    if(p.visible===false)return;
+    let px=p.x, py=p.y;
+    if(g.flow && g.turbulence>0){
+      const nx=turbulence(p.x*2,p.y*2,t,g.flowSpeed)*g.turbulence*0.35;
+      const ny=turbulence(p.x*2+10,p.y*2+10,t,g.flowSpeed)*g.turbulence*0.35;
+      px=clamp(p.x+nx,0,1);
+      py=clamp(p.y+ny,0,1);
+    } else if(g.flow){
+      px=clamp(p.x+Math.sin(t*g.flowSpeed+i*1.7)*0.05,0,1);
+      py=clamp(p.y+Math.cos(t*g.flowSpeed*0.8+i*2.1)*0.05,0,1);
+    }
+    const cx=px*w, cy=py*h;
+    const rad=Math.max(1,Math.hypot(w,h)*g.blend);
+    const op=p.opacity!=null?p.opacity:1;
+    const rg=c.createRadialGradient(cx,cy,0,cx,cy,rad);
+    rg.addColorStop(0, rgba(p.color,0.95*op));
+    rg.addColorStop(0.5, rgba(p.color,0.5*op));
+    rg.addColorStop(1, rgba(p.color,0));
+    c.fillStyle=rg;c.fillRect(0,0,w,h);
+  });
+
+  if(g.noise>0){
+    drawStaticNoise(c,w,h,g.noise);
+  }
+
+  // 在线预览叠加层
+  drawOverlay(c,w,h);
+}
+
+let overlayImage=null;
+function preloadOverlayImage(){
+  const data=state.overlay?.imageData;
+  if(!data){overlayImage=null;return;}
+  if(overlayImage&&overlayImage.src===data)return;
+  const img=new Image();
+  img.onload=()=>{overlayImage=img;};
+  img.onerror=()=>{overlayImage=null;};
+  img.src=data;
+}
+function drawOverlay(c,w,h){
+  const ov=state.overlay;
+  if(!ov||ov.mode==='none'||ov.hidden)return;
+  const scale=Math.max(0.2,Math.min(2,ov.scale||1));
+  if(ov.mode==='text'){
+    const text=ov.text||'';
+    if(!text)return;
+    const fontSize=Math.max(12,Math.round(h*0.10*scale));
+    c.save();
+    c.textAlign='center';
+    c.textBaseline='middle';
+    c.font=`bold ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif`;
+    // 文字阴影增强可读性
+    c.shadowColor='rgba(255,255,255,0.35)';
+    c.shadowBlur=fontSize*0.25;
+    c.fillStyle='#1a1a2e';
+    c.fillText(text,w*0.5,h*0.5);
+    c.restore();
+  }else if(ov.mode==='image'){
+    preloadOverlayImage();
+    if(!overlayImage)return;
+    const maxW=w*0.80*scale;
+    const maxH=h*0.50*scale;
+    let iw=overlayImage.width;
+    let ih=overlayImage.height;
+    if(iw<=0||ih<=0)return;
+    const imgScale=Math.min(maxW/iw, maxH/ih, 1);
+    iw*=imgScale; ih*=imgScale;
+    const x=(w-iw)*0.5;
+    const y=(h-ih)*0.5;
+    c.drawImage(overlayImage,x,y,iw,ih);
+  }
+}
+
+let noiseCanvas=null;
+let noiseCanvasSize=0;
+function drawStaticNoise(c,w,h,amount){
+  const neededSize=Math.max(w,h);
+  if(!noiseCanvas || noiseCanvasSize!==neededSize){
+    noiseCanvas=document.createElement('canvas');
+    noiseCanvas.width=neededSize;
+    noiseCanvas.height=neededSize;
+    const nc=noiseCanvas.getContext('2d');
+    const imgData=nc.createImageData(neededSize,neededSize);
+    const data=imgData.data;
+    for(let i=0;i<data.length;i+=4){
+      const v=Math.random();
+      const offset=(v-0.5)*255;
+      data[i]=128+offset*0.6;
+      data[i+1]=128+offset*0.6;
+      data[i+2]=128+offset*0.6;
+      data[i+3]=255;
+    }
+    nc.putImageData(imgData,0,0);
+    noiseCanvasSize=neededSize;
+  }
+  c.save();
+  c.globalCompositeOperation='overlay';
+  c.globalAlpha=amount/100*0.7;
+  c.drawImage(noiseCanvas,0,0,w,h);
+  c.restore();
+}
+function clampByte(v){return v<0?0:v>255?255:v|0;}
+
+function invalidateNoise(){
+  noiseCanvas=null;
+  noiseCanvasSize=0;
+}
+
+function loop(ts){
+  const dt=(ts-lastTs)/1000; lastTs=ts;
+  if(state.gradient.flow){animTime+=dt;}
+  drawTo(ctx,canvas.width,canvas.height,animTime);
+  if(state.gradient.type==='mesh' && editingMesh){
+    drawEditHandles(ctx,canvas.width,canvas.height);
+  }
+  requestAnimationFrame(loop);
+}
+
+function drawEditHandles(c,w,h){
+  c.save();
+  state.gradient.mesh.forEach((p,i)=>{
+    const x=p.x*w, y=p.y*h;
+    c.beginPath();
+    c.arc(x,y,12,0,Math.PI*2);
+    c.strokeStyle='rgba(255,255,255,0.85)';
+    c.lineWidth=2;
+    c.stroke();
+    c.beginPath();
+    c.arc(x,y,4,0,Math.PI*2);
+    c.fillStyle=p.color;
+    c.fill();
+    c.strokeStyle='#fff';c.lineWidth=1.5;c.stroke();
+  });
+  c.restore();
+}
+
+/* ============ 预设渲染 ============ */
+function renderPresets(){
+  const wrap=$('presetList'); wrap.innerHTML='';
+  const builtin=presets.filter(p=>p.builtin);
+  const custom=presets.filter(p=>!p.builtin);
+
+  builtin.forEach(p=>wrap.appendChild(createPresetItem(p,true)));
+  custom.forEach(p=>wrap.appendChild(createPresetItem(p,false)));
+
+  if(presets.length===0){
+    const empty=document.createElement('div');
+    empty.style.cssText='padding:10px;text-align:center;color:var(--text-dimmer);font-size:11px;border:1px dashed var(--border-soft);border-radius:var(--radius-sm);';
+    empty.textContent='暂无预设，点击上方"保存当前方案"添加';
+    const restore=document.createElement('button');
+    restore.textContent='恢复内置预设';
+    restore.style.cssText='margin-top:8px;padding:4px 12px;font-size:11px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:transparent;color:var(--text-dim);cursor:pointer;';
+    restore.addEventListener('click',()=>{
+      presets=cloneBuiltins();
+      activePresetId=null;
+      saveState();renderPresets();toast('已恢复内置预设');
+    });
+    empty.appendChild(document.createElement('br'));
+    empty.appendChild(restore);
+    wrap.appendChild(empty);
+  }
+}
+
+function createPresetItem(p, isBuiltin){
+  const el=document.createElement('div');
+  el.className='preset-item'+(isBuiltin?' builtin':'')+(activePresetId===p.id?' active':'');
+
+  const data=p.data;
+  let bg='';
+  if(data.gradient.mesh?.length){
+    const colors=data.gradient.mesh;
+    bg=colors.slice(0,4).map((c,i)=>`${c.color} ${i*25}%`).join(', ');
+    bg=`linear-gradient(135deg, ${bg})`;
+  } else {
+    bg='#333';
+  }
+
+  el.innerHTML=`
+    <div class="bg" style="background:${bg}"></div>
+    <div class="info">
+      <div class="name">${p.name}</div>
+      <div class="actions">
+        <button class="rename-btn" title="重命名">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </button>
+        <button class="del" title="删除">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+        </button>
+      </div>
+    </div>
+  `;
+
+  el.addEventListener('click',(e)=>{
+    if(e.target.closest('.rename-btn')||e.target.closest('.del'))return;
+    applyPreset(p);
+  });
+
+  const renBtn=el.querySelector('.rename-btn');
+  if(renBtn){
+    renBtn.addEventListener('click',(e)=>{
+      e.stopPropagation();
+      openRenameModal(p.id);
+    });
+  }
+  const delBtn=el.querySelector('.del');
+  if(delBtn){
+    delBtn.addEventListener('click',(e)=>{
+      e.stopPropagation();
+      if(confirm('删除预设 "'+p.name+'"?')){
+        presets=presets.filter(x=>x.id!==p.id);
+        if(activePresetId===p.id)activePresetId=null;
+        saveState();renderPresets();toast('已删除');
+      }
+    });
+  }
+
+  return el;
+}
+
+function applyPreset(p){
+  const d=JSON.parse(JSON.stringify(p.data));
+  state.gradient={...state.gradient,...d.gradient};
+  state.gradient.type='mesh';
+  activePresetId=p.id;
+  editingMesh=false;
+  refreshUI();
+  renderPresets();
+  saveState();
+  toast('已应用：'+p.name);
+}
+
+function openRenameModal(id){
+  renamingPresetId=id;
+  const p=presets.find(x=>x.id===id);
+  if(!p)return;
+  $('renameTitle').textContent='重命名预设';
+  $('renameInput').value=p.name;
+  $('renameModal').classList.add('show');
+  setTimeout(()=>$('renameInput').focus(),50);
+}
+
+function closeRenameModal(){
+  $('renameModal').classList.remove('show');
+  renamingPresetId=null;
+}
+
+function saveRename(){
+  const name=$('renameInput').value.trim();
+  if(!name){toast('名称不能为空');return;}
+  const p=presets.find(x=>x.id===renamingPresetId);
+  if(!p)return;
+  p.name=name;
+  saveState();
+  renderPresets();
+  closeRenameModal();
+  toast('已重命名');
+}
+
+/* ============ UI 刷新 ============ */
+function refreshUI(){
+  const g=state.gradient;
+
+  $('flow').checked=g.flow;
+  $('flowSpeed').value=g.flowSpeed; $('flowSpeedVal').textContent=g.flowSpeed.toFixed(2);
+  $('turbulence').value=g.turbulence; $('turbulenceVal').textContent=g.turbulence.toFixed(2);
+  $('blend').value=g.blend; $('blendVal').textContent=g.blend.toFixed(2);
+  $('noise').value=g.noise||0; $('noiseVal').textContent=g.noise||0;
+
+  const editBtn=$('toggleEdit');
+  if(editBtn){
+    editBtn.textContent=editingMesh?'编辑中 · 拖拽色点位置':'点击编辑色点位置';
+    editBtn.classList.toggle('active',editingMesh);
+  }
+
+  renderMesh();
+
+  updateExportDropdownUI();
+
+  $('footType').textContent='mesh';
+  $('footColors').textContent=g.mesh.length;
+  updateCode();
+
+  // 同步在线预览控件
+  syncOverlayUI();
+}
+
+function syncOverlayUI(){
+  const ov=state.overlay||defaultState().overlay;
+  const seg=$('overlaySeg');
+  if(seg){
+    [...seg.children].forEach(b=>{
+      b.classList.toggle('active',b.dataset.mode===ov.mode);
+    });
+  }
+  const textWrap=$('overlayTextWrap');
+  const imageWrap=$('overlayImageWrap');
+  const actions=$('overlayActions');
+  if(textWrap)textWrap.style.display=ov.mode==='text'?'block':'none';
+  if(imageWrap)imageWrap.style.display=ov.mode==='image'?'block':'none';
+  if(actions)actions.style.display=ov.mode!=='none'?'flex':'none';
+
+  const textArea=$('overlayText');
+  if(textArea)textArea.value=ov.text||'';
+
+  const fileName=$('overlayFileName');
+  const uploadLabel=$('overlayUploadLabel');
+  if(fileName)fileName.textContent=ov.imageData?'已上传图片':'未选择文件';
+  if(uploadLabel)uploadLabel.textContent=ov.imageData?'替换界面图片':'上传界面图片';
+
+  const toggleVis=$('overlayToggleVis');
+  if(toggleVis)toggleVis.textContent=ov.hidden?'显示':'隐藏';
+
+  const scaleField=$('overlayScaleField');
+  const scaleInput=$('overlayScale');
+  const scaleVal=$('overlayScaleVal');
+  if(scaleField)scaleField.style.display=ov.mode!=='none'?'block':'none';
+  if(scaleInput)scaleInput.value=Math.round((ov.scale||1)*100);
+  if(scaleVal)scaleVal.textContent=Math.round((ov.scale||1)*100)+'%';
+}
+
+/* ============ Export dropdown UI sync ============ */
+function updateExportDropdownUI(){
+  const fmt=state.videoFormat||'mp4';
+  const scale=state.exportScale;
+  const dur=state.exportDuration;
+  const loop=state.exportLoop||false;
+
+  // Format buttons
+  const segFmt=$('segFormat');
+  if(segFmt){
+    [...segFmt.children].forEach(b=>{
+      b.classList.toggle('active',b.dataset.v===fmt);
+    });
+  }
+
+  // Resolution buttons
+  const resGrid=$('resGrid');
+  if(resGrid){
+    [...resGrid.children].forEach(b=>{
+      b.classList.toggle('active',b.dataset.v===String(scale));
+    });
+  }
+
+  // Duration buttons
+  const durGrid=$('durGrid');
+  if(durGrid){
+    [...durGrid.children].forEach(b=>{
+      b.classList.toggle('active',b.dataset.v===String(dur));
+    });
+  }
+
+  // Loop toggle
+  const loopToggle=$('loopToggle');
+  if(loopToggle){
+    loopToggle.dataset.active=String(loop);
+    loopToggle.querySelector('.loop-text').textContent=loop?'开启':'关闭';
+  }
+
+  // Update big export button text
+  const sz=SIZE_TABLE[scale];
+  const fmtLabel=fmt==='webm'?'WEBM':'MP4';
+  const durLabel=dur+'秒';
+  const loopLabel=loop?' · 循环':'';
+  const bigBtn=$('btnStartExport');
+  if(bigBtn){
+    bigBtn.textContent=`导出 ${fmtLabel} · ${sz?sz.label:'?'} · ${durLabel}${loopLabel}`;
+  }
+
+  // Hidden compat
+  const sizeHint=$('sizeHint');
+  if(sizeHint&&sz)sizeHint.textContent=sz.label;
+  const durVal=$('durVal');
+  if(durVal)durVal.textContent=dur+'s';
+  const duration=$('duration');
+  if(duration)duration.value=dur;
+}
+
+/* ============ Export dropdown toggle ============ */
+function toggleExportDropdown(show){
+  const dd=$('exportDropdown');
+  if(show===undefined)show=!dd.classList.contains('show');
+  dd.classList.toggle('show',show);
+}
+
+/* ============ Fullscreen toggle ============ */
+function toggleFullscreen(force){
+  let isFs;
+  if(force===undefined){
+    isFs=!document.body.classList.contains('fullscreen');
+  } else {
+    isFs=force;
+  }
+  document.body.classList.toggle('fullscreen',isFs);
+  const enterIcon=document.querySelector('#btnFullscreen .icon-enter');
+  const exitIcon=document.querySelector('#btnFullscreen .icon-exit');
+  if(enterIcon&&exitIcon){
+    enterIcon.style.display=isFs?'none':'';
+    exitIcon.style.display=isFs?'':'none';
+  }
+  toast(isFs?'已进入全屏模式':'已退出全屏模式');
+}
+
+function setSeg(id,val){
+  const el=$(id);
+  if(!el)return;
+  [...el.children].forEach(b=>b.classList.toggle('active',b.dataset.v===val));
+}
+
+function renderMesh(){
+  const wrap=$('meshStops'); wrap.innerHTML='';
+  state.gradient.mesh.forEach((p,i)=>{
+    const row=document.createElement('div');
+    row.className='stop-row'+(p.visible===false?' is-hidden':'');
+    row.draggable=true;
+    row.dataset.index=i;
+
+    const opVal=Math.round((p.opacity!=null?p.opacity:1)*100);
+    const hexVal=p.color.toUpperCase().replace('#','');
+
+    row.innerHTML=`
+      <div class="drag-handle" title="拖动重新排序">
+        <svg viewBox="0 0 16 16" fill="currentColor">
+          <circle cx="5" cy="3" r="1.2"/><circle cx="11" cy="3" r="1.2"/>
+          <circle cx="5" cy="8" r="1.2"/><circle cx="11" cy="8" r="1.2"/>
+          <circle cx="5" cy="13" r="1.2"/><circle cx="11" cy="13" r="1.2"/>
+        </svg>
+      </div>
+      <div class="color-wrap">
+        <div class="swatch" title="点击选择颜色">
+          <div class="swatch-fill"></div>
+        </div>
+        <input type="text" class="hex-input" maxlength="7" value="${hexVal}" placeholder="FFFFFF">
+      </div>
+      <div class="opacity-wrap">
+        <input type="number" class="opacity-input" min="0" max="100" value="${opVal}">
+        <span class="opacity-pct">%</span>
+      </div>
+      <div class="actions">
+        <button class="act-btn visibility${p.visible===false?' hidden':''}" title="${p.visible===false?'显示':'隐藏'}">
+          <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+        </button>
+        <button class="act-btn danger remove" title="删除">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>`;
+
+    const swatchFill=row.querySelector('.swatch-fill');
+    const hexInput=row.querySelector('.hex-input');
+    const opInput=row.querySelector('.opacity-input');
+
+    const applySwatch=()=>{
+      const rgb=hexToRgb(p.color);
+      const a=p.opacity!=null?p.opacity:1;
+      swatchFill.style.backgroundColor=`rgba(${rgb.r},${rgb.g},${rgb.b},${a})`;
+    };
+    applySwatch();
+
+    const swatch=row.querySelector('.swatch');
+    swatch.addEventListener('mousedown',e=>e.stopPropagation());
+    swatch.addEventListener('click',e=>{
+      e.stopPropagation();
+      showColorPicker(swatch,p.color,(newColor)=>{
+        p.color=newColor;
+        applySwatch();
+        hexInput.value=p.color.toUpperCase().replace('#','');
+        saveState();updateCode();
+      });
+    });
+
+    hexInput.addEventListener('change',e=>{
+      let v=e.target.value.trim().replace('#','');
+      if(!/^[0-9a-fA-F]{6}$/.test(v)){hexInput.value=p.color.toUpperCase().replace('#','');return;}
+      p.color='#'+v.toLowerCase();
+      applySwatch();
+      saveState();updateCode();
+    });
+    hexInput.addEventListener('keydown',e=>{
+      if(e.key==='Enter'){e.target.blur();}
+    });
+
+    opInput.addEventListener('input',e=>{
+      let v=parseInt(e.target.value)||0;
+      v=Math.max(0,Math.min(100,v));
+      p.opacity=v/100;
+      applySwatch();
+      saveState();updateCode();
+    });
+
+    const visBtn=row.querySelector('.visibility');
+    const eyeOpen=visBtn.querySelector('.eye-open');
+    const eyeClosed=visBtn.querySelector('.eye-closed');
+    const updateVisBtn=()=>{
+      const hidden=p.visible===false;
+      visBtn.classList.toggle('hidden',hidden);
+      visBtn.title=hidden?'显示':'隐藏';
+      eyeOpen.style.display=hidden?'none':'';
+      eyeClosed.style.display=hidden?'':'none';
+      row.classList.toggle('is-hidden',hidden);
+    };
+    updateVisBtn();
+    visBtn.addEventListener('click',()=>{
+      p.visible=p.visible===false?true:false;
+      if(p.visible===false)p._savedOpacity=p.opacity;
+      else if(p._savedOpacity!=null){p.opacity=p._savedOpacity;delete p._savedOpacity;}
+      updateVisBtn();
+      opInput.value=Math.round((p.opacity!=null?p.opacity:1)*100);
+      applySwatch();
+      saveState();updateCode();
+    });
+
+    row.querySelector('.remove').addEventListener('click',()=>{
+      if(state.gradient.mesh.length<=2){toast('至少保留 2 个色点');return;}
+      state.gradient.mesh.splice(i,1);refreshUI();saveState();
+    });
+
+    row.addEventListener('dragstart',e=>{
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed='move';
+      e.dataTransfer.setData('text/plain',String(i));
+      try{e.dataTransfer.setDragImage(row,20,20);}catch(err){}
+    });
+    row.addEventListener('dragend',()=>{
+      row.classList.remove('dragging');
+      document.querySelectorAll('.stop-row').forEach(r=>{
+        r.classList.remove('drag-over-top','drag-over-bottom');
+      });
+    });
+    row.addEventListener('dragover',e=>{
+      e.preventDefault();
+      e.dataTransfer.dropEffect='move';
+      const rect=row.getBoundingClientRect();
+      const above=(e.clientY-rect.top)<rect.height/2;
+      row.classList.toggle('drag-over-top',above);
+      row.classList.toggle('drag-over-bottom',!above);
+    });
+    row.addEventListener('dragleave',()=>{
+      row.classList.remove('drag-over-top','drag-over-bottom');
+    });
+    row.addEventListener('drop',e=>{
+      e.preventDefault();
+      row.classList.remove('drag-over-top','drag-over-bottom');
+      const fromIdx=parseInt(e.dataTransfer.getData('text/plain'));
+      const toIdx=parseInt(row.dataset.index);
+      if(fromIdx===toIdx)return;
+      const rect=row.getBoundingClientRect();
+      const above=(e.clientY-rect.top)<rect.height/2;
+      const insertAt=above?toIdx:toIdx+1;
+      const m=state.gradient.mesh;
+      const [moved]=m.splice(fromIdx,1);
+      m.splice(insertAt,0,moved);
+      renderMesh();saveState();updateCode();
+    });
+
+    wrap.appendChild(row);
+  });
+}
+
+/* ============ 事件绑定 ============ */
+function bindEvents(){
+  $('flow').addEventListener('change',e=>{state.gradient.flow=e.target.checked;saveState();});
+  $('flowSpeed').addEventListener('input',e=>{state.gradient.flowSpeed=+e.target.value;$('flowSpeedVal').textContent=(+e.target.value).toFixed(2);updateCode();saveState();});
+  $('turbulence').addEventListener('input',e=>{state.gradient.turbulence=+e.target.value;$('turbulenceVal').textContent=(+e.target.value).toFixed(2);updateCode();saveState();});
+  $('blend').addEventListener('input',e=>{state.gradient.blend=+e.target.value;$('blendVal').textContent=(+e.target.value).toFixed(2);updateCode();saveState();});
+  $('noise').addEventListener('input',e=>{state.gradient.noise=+e.target.value;$('noiseVal').textContent=+e.target.value;updateCode();saveState();});
+
+  $('addMesh').addEventListener('click',()=>{
+    if(state.gradient.mesh.length>=8){toast('最多 8 个色点');return;}
+    state.gradient.mesh.push({x:0.5,y:0.5,color:'#ffffff',opacity:1,visible:true});
+    refreshUI();saveState();
+  });
+
+  $('toggleEdit').addEventListener('click',()=>{
+    editingMesh=!editingMesh;
+    const btn=$('toggleEdit');
+    btn.textContent=editingMesh?'编辑中 · 拖拽色点位置':'点击编辑色点位置';
+    btn.classList.toggle('active',editingMesh);
+  });
+
+  function canvasPos(e){
+    const r=canvas.getBoundingClientRect();
+    const sx=canvas.width/r.width, sy=canvas.height/r.height;
+    return {x:(e.clientX-r.left)*sx, y:(e.clientY-r.top)*sy};
+  }
+  canvas.addEventListener('mousedown',e=>{
+    if(!editingMesh)return;
+    const {x,y}=canvasPos(e);
+    let bi=-1,bd=1e9;
+    state.gradient.mesh.forEach((p,i)=>{
+      const dx=p.x*canvas.width-x, dy=p.y*canvas.height-y;
+      const d=Math.hypot(dx,dy);
+      if(d<bd){bd=d;bi=i;}
+    });
+    if(bd<50){dragIdx=bi;}
+  });
+  window.addEventListener('mousemove',e=>{
+    if(dragIdx<0)return;
+    const {x,y}=canvasPos(e);
+    state.gradient.mesh[dragIdx].x=clamp(x/canvas.width,0,1);
+    state.gradient.mesh[dragIdx].y=clamp(y/canvas.height,0,1);
+    renderMesh();saveState();updateCode();
+  });
+  window.addEventListener('mouseup',()=>{dragIdx=-1;});
+
+  // Top bar buttons
+  $('btnReset').addEventListener('click',()=>{
+    state=defaultState();activePresetId=null;editingMesh=false;
+    saveState();renderPresets();refreshUI();
+    toast('已重置');
+  });
+
+  $('btnFullscreen').addEventListener('click',()=>{
+    toggleFullscreen();
+  });
+
+  $('btnDownloadPng').addEventListener('click',async ()=>{
+    // 在用户手势内先弹出保存位置，避免录制/生成完成后被浏览器拦截
+    const handle=await requestSaveHandle(`gradient-${Date.now()}.png`);
+    if(handle===false){pendingSaveHandle=null;return;} // 用户取消
+    pendingSaveHandle=handle||null;
+    checkOverlayBeforeExport(()=>exportPng());
+  });
+
+  $('btnShare').addEventListener('click',()=>{
+    copyUrlToClipboard();
+  });
+
+  $('btnExport').addEventListener('click',(e)=>{
+    e.stopPropagation();
+    toggleExportDropdown();
+  });
+
+  $('btnCopyCode').addEventListener('click',()=>copyCode(state.codeTab));
+  $('btnCopy2').addEventListener('click',()=>copyCode(state.codeTab));
+
+  // Export dropdown format
+  const segFmt=$('segFormat');
+  if(segFmt){
+    [...segFmt.children].forEach(b=>b.addEventListener('click',()=>{
+      state.videoFormat=b.dataset.v;
+      updateExportDropdownUI();saveState();
+    }));
+  }
+
+  // Resolution grid
+  const resGrid=$('resGrid');
+  if(resGrid){
+    [...resGrid.children].forEach(b=>b.addEventListener('click',()=>{
+      state.exportScale=+b.dataset.v;
+      updateExportDropdownUI();saveState();
+    }));
+  }
+
+  // Duration grid
+  const durGrid=$('durGrid');
+  if(durGrid){
+    [...durGrid.children].forEach(b=>b.addEventListener('click',()=>{
+      state.exportDuration=+b.dataset.v;
+      updateExportDropdownUI();saveState();
+    }));
+  }
+
+  // Loop toggle
+  const loopToggle=$('loopToggle');
+  if(loopToggle){
+    loopToggle.addEventListener('click',()=>{
+      state.exportLoop=!state.exportLoop;
+      updateExportDropdownUI();saveState();
+    });
+  }
+
+  // Big export button
+  $('btnStartExport').addEventListener('click',async ()=>{
+    toggleExportDropdown(false);
+    // 在用户手势内先弹出保存位置（录制要数秒，事后弹窗会被浏览器拦截）
+    const ext=state.videoFormat==='webm'?'webm':'mp4';
+    const handle=await requestSaveHandle(`gradient-video-${Date.now()}.${ext}`);
+    if(handle===false){pendingSaveHandle=null;return;} // 用户取消导出
+    pendingSaveHandle=handle||null;
+    if(handle){
+      // 明确提示流程：文件位置已选定，渲染完成后会自动写入，避免用户误以为卡住
+      toast('已选择保存位置，渲染完成后将自动写入该文件...');
+    }
+    const doExport=async ()=>{
+      try{
+        await exportMp4();
+      }catch(e){
+        console.error('导出失败:',e);
+        // 编码/封装失败时，用户命名但未写入的占位文件已无意义，清理掉避免残留空视频
+        await discardPendingHandle();
+        toast('导出失败: '+(e&&e.message||e));
+      }
+    };
+    checkOverlayBeforeExport(doExport);
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click',(e)=>{
+    const dd=$('exportDropdown');
+    if(dd.classList.contains('show')&&!dd.contains(e.target)&&e.target.id!=='btnExport'){
+      toggleExportDropdown(false);
+    }
+  });
+
+  // Keyboard shortcuts
+  document.addEventListener('keydown',(e)=>{
+    // Shift+R: toggle fullscreen
+    if((e.key==='r'||e.key==='R')&&e.shiftKey){
+      e.preventDefault();
+      toggleFullscreen();
+      return;
+    }
+    // ESC: exit fullscreen or close dropdown / confirm modal
+    if(e.key==='Escape'){
+      if(document.body.classList.contains('fullscreen')){
+        toggleFullscreen(false);
+      }
+      if($('exportDropdown').classList.contains('show')){
+        toggleExportDropdown(false);
+      }
+      if($('confirmModal').classList.contains('show')){
+        $('confirmModal').classList.remove('show');
+        discardPendingHandle();
+        pendingExportAction=null;
+      }
+    }
+  });
+
+  // Save current
+  $('saveCurrent').addEventListener('click',()=>{
+    savingCurrent=true;
+    $('renameTitle').textContent='保存为新预设';
+    $('renameInput').value='';
+    $('renameModal').classList.add('show');
+    setTimeout(()=>$('renameInput').focus(),50);
+  });
+
+  // Rename/save confirm
+  $('renameCancel').addEventListener('click',()=>{
+    $('renameModal').classList.remove('show');
+    renamingPresetId=null;savingCurrent=false;
+  });
+  $('renameOk').addEventListener('click',()=>{
+    if(savingCurrent){
+      const name=$('renameInput').value.trim();
+      if(!name){toast('名称不能为空');return;}
+      const data=JSON.parse(JSON.stringify({gradient:state.gradient}));
+      const np={
+        id:genId(),
+        name,
+        builtin:false,
+        data,
+      };
+      presets.push(np);
+      activePresetId=np.id;
+      saveState();renderPresets();
+      toast('已保存预设：'+name);
+      savingCurrent=false;
+      $('renameModal').classList.remove('show');
+      return;
+    }
+    saveRename();
+  });
+  $('renameInput').addEventListener('keydown',e=>{
+    if(e.key==='Enter')$('renameOk').click();
+    if(e.key==='Escape')$('renameCancel').click();
+  });
+
+  // Code bar tabs
+  document.querySelectorAll('.code-tab').forEach(t=>{
+    t.addEventListener('click',e=>{
+      e.stopPropagation();
+      document.querySelectorAll('.code-tab').forEach(x=>x.classList.remove('active'));
+      t.classList.add('active');
+      state.codeTab=t.dataset.c;
+      updateCode();saveState();
+    });
+  });
+  $('codeHead').addEventListener('click',e=>{
+    if(e.target.classList.contains('code-tab')||e.target.closest('.code-tab'))return;
+    $('codeBar').classList.toggle('collapsed');
+  });
+
+  // Resize
+  window.addEventListener('resize',resizeCanvas);
+
+  /* ===== 在线预览事件 ===== */
+  const seg=$('overlaySeg');
+  if(seg){
+    [...seg.children].forEach(b=>b.addEventListener('click',()=>{
+      const mode=b.dataset.mode;
+      if(state.overlay.mode===mode)return;
+      state.overlay.mode=mode;
+      syncOverlayUI();saveState();
+    }));
+  }
+  const textArea=$('overlayText');
+  if(textArea){
+    textArea.addEventListener('input',e=>{
+      state.overlay.text=e.target.value;
+      saveState();
+    });
+  }
+  const imgInput=$('overlayImageInput');
+  if(imgInput){
+    imgInput.addEventListener('change',e=>{
+      const file=e.target.files[0];
+      if(!file)return;
+      const reader=new FileReader();
+      reader.onload=ev=>{
+        state.overlay.imageData=ev.target.result;
+        preloadOverlayImage();
+        syncOverlayUI();saveState();
+        toast('图片已上传');
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  const uploadBtn=$('overlayUploadBtn');
+  if(uploadBtn){
+    uploadBtn.addEventListener('click',()=>imgInput&&imgInput.click());
+  }
+  const toggleVis=$('overlayToggleVis');
+  if(toggleVis){
+    toggleVis.addEventListener('click',()=>{
+      state.overlay.hidden=!state.overlay.hidden;
+      syncOverlayUI();saveState();
+    });
+  }
+  const closeOverlay=$('overlayClose');
+  if(closeOverlay){
+    closeOverlay.addEventListener('click',()=>{
+      state.overlay.mode='none';
+      state.overlay.hidden=false;
+      syncOverlayUI();saveState();
+    });
+  }
+  const scaleInput=$('overlayScale');
+  if(scaleInput){
+    scaleInput.addEventListener('input',e=>{
+      const v=parseInt(e.target.value,10)||100;
+      state.overlay.scale=v/100;
+      const scaleVal=$('overlayScaleVal');
+      if(scaleVal)scaleVal.textContent=v+'%';
+      saveState();
+    });
+  }
+
+  // 导出确认弹窗
+  $('confirmYes').addEventListener('click',()=>{
+    $('confirmModal').classList.remove('show');
+    if(pendingExportAction)pendingExportAction();
+    pendingExportAction=null;
+  });
+  $('confirmNo').addEventListener('click',()=>{
+    $('confirmModal').classList.remove('show');
+    discardPendingHandle();
+    pendingExportAction=null;
+  });
+}
+
+/* ============ 导出 PNG / MP4 / WEBM ============ */
+let exporting=false;
+let pendingExportAction=null;
+
+function isOverlayActive(){
+  const ov=state.overlay;
+  return ov&&ov.mode!=='none'&&!ov.hidden;
+}
+function checkOverlayBeforeExport(action){
+  if(isOverlayActive()){
+    pendingExportAction=action;
+    $('confirmModal').classList.add('show');
+    return false;
+  }
+  action();
+  return true;
+}
+function makeExportCanvas(){
+  const sz=SIZE_TABLE[state.exportScale];
+  const off=document.createElement('canvas');
+  off.width=sz.w; off.height=sz.h;
+  return off;
+}
+/* ============ 导出文件保存（绕过浏览器视频预览） ============ */
+// 录制完成后再弹保存框会因“失去用户激活”被浏览器拒绝，
+// 所以必须在用户点击导出的瞬间弹出保存对话框，录制完成后写入。
+let pendingSaveHandle = null;
+
+// 清理"用户已命名但从未写入内容"的占位文件（导出失败/取消时调用，避免残留空视频）
+async function discardPendingHandle(){
+  if(pendingSaveHandle){
+    try{ await pendingSaveHandle.remove(); }catch(_){}
+    pendingSaveHandle=null;
+  }
+}
+
+// 在用户手势内请求保存位置。
+// 返回: FileSystemFileHandle 成功; null 浏览器不支持(走传统下载); false 用户取消(中止导出)
+// 注意：这里必须直接 await，不能加"超时兜底"——对话框打开期间用户改名保存的时长不受控制，
+// 一旦超时先返回而用户之后又点了保存，磁盘上会留下用户命名的空占位文件，且 handle 已丢失，
+// 渲染完成后再也写不进去（正是"导出空视频 + 又自动下载一个"bug 的根因）。
+async function requestSaveHandle(filename){
+  if(!window.showSaveFilePicker) return null;
+  const ext=(filename.split('.').pop()||'').toLowerCase();
+  const mimeMap={mp4:'video/mp4',webm:'video/webm',png:'image/png'};
+  const mime=mimeMap[ext]||'application/octet-stream';
+  try{
+    return await window.showSaveFilePicker({
+      suggestedName:filename,
+      types:[{description:ext.toUpperCase()+' 文件',accept:{[mime]:['.'+ext]}}],
+    });
+  }catch(e){
+    if(e&&e.name==='AbortError') return false; // 用户取消
+    console.warn('showSaveFilePicker error:',e);
+    return null;
+  }
+}
+
+async function triggerDownload(blob, filename){
+  // 1) 优先写入用户预先选择的保存位置
+  if(pendingSaveHandle){
+    const handle=pendingSaveHandle;
+    pendingSaveHandle=null; // 先消费，避免异常/失败后残留
+    try{
+      const writable=await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return 'saved'; // 已写入用户指定位置
+    }catch(err){
+      console.warn('写入指定位置失败, 回退浏览器下载:',err);
+      // 用户选择的文件已由系统创建（空的），写入失败会留下"空视频"——
+      // 尝试删除占位文件，避免用户磁盘上残留一个打不开的命名空文件
+      try{ await handle.remove(); }catch(_){}
+      toast('保存到指定位置失败，已改为浏览器下载');
+    }
+  }
+
+  // 2) 兜底：传统 <a download> 触发下载（不打开视频预览）
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=filename;
+  a.rel='noopener noreferrer';
+  a.style.display='none';
+  document.body.appendChild(a);
+  a.click();
+  // 注意：不能过早 revokeObjectURL —— 大文件（如 4K 视频几十 MB）下载未完成时
+  // revoke 会中断下载，产生 0 字节文件。延迟 60s 再清理，确保下载完成。
+  setTimeout(()=>{
+    a.remove();
+    URL.revokeObjectURL(url);
+  },60000);
+  return 'downloaded';
+}
+
+async function exportPng(){
+  const sz=SIZE_TABLE[state.exportScale];
+  const off=makeExportCanvas();
+  const oc=off.getContext('2d');
+  drawTo(oc,sz.w,sz.h,animTime);
+  off.toBlob(async b=>{
+    if(!b){toast('PNG 导出失败');return;}
+    const mode=await triggerDownload(b, `gradient-${sz.w}x${sz.h}-${Date.now()}.png`);
+    toast(mode==='saved'
+      ? `PNG 已保存到指定位置 (${sz.w}×${sz.h})`
+      : `PNG 已导出 (${sz.w}×${sz.h}) · 请在浏览器下载栏查看`);
+  }, 'image/png');
+}
+
+async function exportMp4(){
+  // 路由：MP4 优先走 WebCodecs 硬件编码（生成标准 moov 头 MP4，兼容所有播放器）
+  const userFmt = state.videoFormat || 'mp4';
+  if(userFmt === 'mp4' && typeof VideoEncoder !== 'undefined' && window.Mp4Muxer){
+    try{
+      await exportMp4WebCodecs();
+      return;
+    }catch(e){
+      console.error('WebCodecs MP4 导出失败，回退 MediaRecorder:', e);
+      toast('MP4 高质量编码失败，尝试兼容模式导出...');
+    }
+  }
+  // ── 回退前能力检测：避免在旧浏览器上导出"打不开"的 MP4 ──
+  if(userFmt === 'mp4'){
+    if(!('MediaRecorder' in window)){
+      toast('当前浏览器不支持视频录制，无法导出 MP4。建议使用最新版 Chrome / Edge');
+      return;
+    }
+    const mp4Ok = [
+      'video/mp4;codecs=h264','video/mp4;codecs=avc1','video/mp4;codecs=avc1.42E01E',
+      'video/mp4;codecs=avc1.4D401E','video/mp4;codecs=avc1.640028','video/x-m4v','video/mp4',
+    ].some(t => { try{ return MediaRecorder.isTypeSupported(t); }catch(_){ return false; } });
+    if(!mp4Ok){
+      toast('此浏览器无法录制 MP4（仅支持高质量 WebCodecs 编码）。请升级到 Chrome/Edge 91+，或改用 WEBM 格式');
+      return;
+    }
+    toast('当前浏览器不支持高质量 MP4 编码，将尝试兼容模式导出（可能无法在部分播放器播放）...');
+  }
+  await exportViaMediaRecorder();
+}
+
+/* ==== MP4 导出（推荐路径）：WebCodecs H.264 逐帧编码 + mp4-muxer 封装 ==== */
+async function exportMp4WebCodecs(){
+  const sz = SIZE_TABLE[state.exportScale];
+  const dur = state.exportDuration;
+  const loop = state.exportLoop || false;
+  const fps = 30;
+  const totalFrames = Math.max(1, Math.round(dur * fps));
+  const M = window.Mp4Muxer;
+
+  // H.264 level 按分辨率选择：4K→5.1，1080p→4.0
+  const is4K = sz.w * sz.h >= 3840 * 2000;
+  const levelHex = is4K ? '33' : '28';
+  const bitsPerPixel = is4K ? 6 : 4;
+  const config = {
+    codec: 'avc1.6400' + levelHex, // High Profile
+    width: sz.w,
+    height: sz.h,
+    bitrate: Math.round(sz.w * sz.h * bitsPerPixel),
+    framerate: fps,
+    latencyMode: 'quality',
+    avc: { format: 'avc' },
+  };
+
+  const support = await VideoEncoder.isConfigSupported(config);
+  if(!support || !support.supported){
+    throw new Error('当前浏览器不支持 H.264 ' + sz.label + ' 编码');
+  }
+
+  const target = new M.ArrayBufferTarget();
+  const muxer = new M.Muxer({
+    target,
+    video: { codec: 'avc', width: sz.w, height: sz.h },
+    fastStart: 'in-memory',
+    firstTimestampBehavior: 'offset',
+  });
+
+  let encError = null;
+  const encoder = new VideoEncoder({
+    output: (chunk, meta) => {
+      try{ muxer.addVideoChunk(chunk, meta); }
+      catch(err){ if(!encError) encError = err; }
+    },
+    error: e => { if(!encError) encError = e; }
+  });
+  encoder.configure(config);
+
+  const off = makeExportCanvas();
+  const oc = off.getContext('2d');
+  const loopTag = loop ? ' · 循环' : '';
+  toast(`开始编码 ${dur}s MP4 @${fps}fps · ${sz.label}${loopTag}...`);
+
+  exporting = true;
+  let lastToastFrame = -1;
+  try{
+    for(let i = 0; i < totalFrames; i++){
+      if(encError) throw encError;
+      const progress = totalFrames === 1 ? 0 : i / (totalFrames - 1);
+      const t = loop
+        ? animTime + (1 - Math.cos(progress * 2 * Math.PI)) * 0.5 * dur
+        : animTime + progress * dur;
+      drawTo(oc, sz.w, sz.h, t);
+      // 进度提示：每 5 帧更新一次，长视频（4K/10s）不再"干等"
+      if(i - lastToastFrame >= 5 || i === totalFrames - 1){
+        lastToastFrame = i;
+        const pct = Math.round((i + 1) / totalFrames * 100);
+        toast(`正在编码 MP4 ${pct}% · ${sz.label}${loopTag}...`);
+      }
+      const frame = new VideoFrame(off, {
+        timestamp: Math.round(i * 1e6 / fps),
+        duration: Math.round(1e6 / fps),
+      });
+      encoder.encode(frame, { keyFrame: i % fps === 0 });
+      frame.close();
+      // 背压控制：编码队列过深时等待，避免内存堆积
+      if(encoder.encodeQueueSize > 4){
+        await new Promise(r => encoder.addEventListener('dequeue', r, { once: true }));
+      }
+    }
+    await encoder.flush();
+    if(encError) throw encError;
+    muxer.finalize();
+
+    const blob = new Blob([target.buffer], { type: 'video/mp4' });
+    if(blob.size < 10000){
+      throw new Error('编码数据异常 (' + blob.size + ' bytes)');
+    }
+
+    const loopSuffix = loop ? '-loop' : '';
+    const saveMode = await triggerDownload(blob, `gradient-${sz.w}x${sz.h}-${dur}s${loopSuffix}-${Date.now()}.mp4`);
+    toast(saveMode === 'saved'
+      ? `文件已保存到指定位置 (${sz.label}, ${dur}s${loopTag})`
+      : `MP4 已导出 (${sz.label}, ${dur}s, ${fps}fps${loopTag}) · 请在浏览器下载栏查看`);
+  } finally {
+    try{ encoder.close(); }catch(_){}
+    exporting = false;
+  }
+}
+
+/* ==== WEBM 导出 / MP4 兜底：MediaRecorder 实时录制 ==== */
+async function exportViaMediaRecorder(){
+  if(!('MediaRecorder' in window)){toast('当前浏览器不支持录制视频');return;}
+  const sz=SIZE_TABLE[state.exportScale];
+  const off=makeExportCanvas();
+  const oc=off.getContext('2d');
+  const dur=state.exportDuration;
+  const loop=state.exportLoop||false;
+
+  // ==== 统一 30fps ====
+  const fps = 30;
+  const totalFrames = Math.max(1, Math.floor(dur * fps));
+  const frameIntervalMs = 1000 / fps;
+
+  // 根据用户选择的格式强制使用对应编码
+  const userFmt = state.videoFormat || 'mp4';
+  let mimeType, ext;
+
+  if(userFmt === 'mp4'){
+    const mp4Candidates = [
+      'video/mp4;codecs=h264',
+      'video/mp4;codecs=avc1',
+      'video/mp4;codecs=avc1.42E01E',
+      'video/mp4;codecs=avc1.4D401E',
+      'video/mp4;codecs=avc1.640028',
+      'video/x-m4v',
+      'video/mp4',
+    ];
+    mimeType = '';
+    for(const t of mp4Candidates){
+      if(MediaRecorder.isTypeSupported(t)){
+        mimeType = t;
+        break;
+      }
+    }
+    ext = 'mp4';
+    if(!mimeType){
+      if(MediaRecorder.isTypeSupported('video/mp4')){
+        mimeType = 'video/mp4';
+      } else {
+        toast('当前浏览器不支持MP4编码，建议使用Chrome/Safari或改为WEBM格式');
+        return;
+      }
+    }
+  } else {
+    mimeType = 'video/webm;codecs=vp9';
+    ext = 'webm';
+    if(!MediaRecorder.isTypeSupported(mimeType)){
+      if(MediaRecorder.isTypeSupported('video/webm;codecs=vp8')){
+        mimeType = 'video/webm;codecs=vp8';
+      } else if(MediaRecorder.isTypeSupported('video/webm')){
+        mimeType = 'video/webm';
+      } else {
+        toast('当前浏览器不支持WEBM编码');
+        return;
+      }
+    }
+  }
+
+  try {
+    const stream = off.captureStream(fps);
+    const vt = stream.getVideoTracks()[0];
+    const chunks = [];
+    const totalPixels = sz.w * sz.h;
+    const bitsPerPixel = totalPixels >= 3840*2000 ? 6 : 4;
+    let rec;
+    try {
+      rec = new MediaRecorder(stream, {
+        mimeType: mimeType,
+        videoBitsPerSecond: sz.w * sz.h * bitsPerPixel,
+      });
+    } catch(e) {
+      rec = new MediaRecorder(stream);
+    }
+    rec.ondataavailable = e => { if(e.data && e.data.size > 0) chunks.push(e.data); };
+
+    const loopTag = loop ? ' · 循环' : '';
+    toast(`开始录制 ${dur}s ${ext.toUpperCase()} @${fps}fps · ${sz.label}${loopTag}...`);
+
+    // ==== 关键修复 1: 先画第一帧，确保 canvas 有内容 ====
+    drawTo(oc, sz.w, sz.h, animTime);
+    if(vt.requestFrame) vt.requestFrame();
+
+    // ==== 关键修复 2: 给 canvas 一帧时间同步到 stream ====
+    await new Promise(r => requestAnimationFrame(r));
+    await new Promise(r => requestAnimationFrame(r));
+
+    // ==== 关键修复 3: 启动录制（不指定 timeslice，让编码器自己决定）====
+    rec.start();
+    exporting = true;
+
+    // ==== 关键修复 4: 等待录制器初始化 ====
+    await new Promise(r => setTimeout(r, 200));
+
+    // ==== 关键修复 5: 使用 rAF 循环驱动录制，确保每帧都被捕获 ====
+    const progressDenom = Math.max(1, totalFrames - 1);
+    let frameIndex = 0;
+    let lastToastFrame = -1;
+    const startTime = performance.now();
+
+    await new Promise((resolve) => {
+      const renderFrame = () => {
+        if(frameIndex >= totalFrames){
+          resolve();
+          return;
+        }
+
+        // 进度提示（每 5 帧更新一次）
+        if(frameIndex - lastToastFrame >= 5 || frameIndex === totalFrames - 1){
+          lastToastFrame = frameIndex;
+          const pct = Math.round(Math.min(frameIndex + 1, totalFrames) / totalFrames * 100);
+          toast(`正在录制 ${ext.toUpperCase()} ${pct}% · ${sz.label}${loopTag}...`);
+        }
+
+        const progress = frameIndex / progressDenom;
+        let t;
+        if(loop){
+          t = animTime + (1 - Math.cos(progress * 2 * Math.PI)) * 0.5 * dur;
+        } else {
+          t = animTime + progress * dur;
+        }
+
+        drawTo(oc, sz.w, sz.h, t);
+        if(vt.requestFrame) vt.requestFrame();
+
+        frameIndex++;
+
+        // 计算下一帧的目标时间
+        const elapsed = performance.now() - startTime;
+        const targetElapsed = frameIndex * frameIntervalMs;
+        const delay = targetElapsed - elapsed;
+
+        if(delay > 0){
+          setTimeout(renderFrame, delay);
+        } else {
+          requestAnimationFrame(renderFrame);
+        }
+      };
+      renderFrame();
+    });
+
+    // ==== 关键修复 6: 画最后一帧并等待同步 ====
+    const lastProgress = loop ? 0 : 1;
+    const lastT = loop ? animTime : animTime + dur;
+    drawTo(oc, sz.w, sz.h, lastT);
+    if(vt.requestFrame) vt.requestFrame();
+    await new Promise(r => requestAnimationFrame(r));
+    await new Promise(r => requestAnimationFrame(r));
+
+    // ==== 关键修复 7: 给编码器额外时间完成最后一帧 ====
+    await new Promise(r => setTimeout(r, 300));
+
+    // ==== 停止录制 ====
+    const onStopPromise = new Promise(res => rec.onstop = () => res());
+    rec.stop();
+    await onStopPromise;
+    exporting = false;
+
+    // ==== 检查数据 ====
+    if(chunks.length === 0 || chunks.every(c => c.size === 0)){
+      await discardPendingHandle();
+      toast('录制失败: 未捕获到视频数据');
+      return;
+    }
+
+    const blob = new Blob(chunks, { type: mimeType.split(';')[0] });
+    if(blob.size < 1000){
+      await discardPendingHandle();
+      toast('录制失败: 视频数据过小 (' + blob.size + ' bytes)');
+      return;
+    }
+
+    const loopSuffix = loop ? '-loop' : '';
+    const saveMode = await triggerDownload(blob, `gradient-${sz.w}x${sz.h}-${dur}s${loopSuffix}-${Date.now()}.${ext}`);
+    toast(saveMode==='saved'
+      ? `文件已保存到指定位置 (${sz.label}, ${dur}s${loopTag})`
+      : `${ext.toUpperCase()} 已导出 (${sz.label}, ${dur}s, ${fps}fps${loopTag}) · 请在浏览器下载栏查看`);
+  } catch(e) {
+    exporting = false;
+    await discardPendingHandle();
+    toast('导出失败: ' + e.message);
+    console.error(e);
+  }
+}
+
+async function doExport(){
+  if(exporting){toast('正在导出中...');return;}
+  if(state.exportFormat==='png') await exportPng();
+  else if(state.exportFormat==='webm' || state.exportFormat==='mp4') await exportMp4();
+}
+
+/* ============ 代码生成 ============ */
+function updateCode(){
+  const g=state.gradient;
+  if(state.codeTab==='json'){
+    $('codeOut').textContent=JSON.stringify(state,null,2);
+  } else if(state.codeTab==='css'){
+    $('codeOut').textContent=genCSS();
+  } else {
+    $('codeOut').textContent=genCanvas();
+  }
+}
+
+function genCSS(){
+  const g=state.gradient;
+  const m=g.mesh.filter(p=>p.visible!==false);
+  if(!m.length)return '/* 无可见色点 */';
+  const bg=`radial-gradient(circle at ${(m[0].x*100).toFixed(0)}% ${(m[0].y*100).toFixed(0)}%, ${m[0].color}, transparent 50%)`;
+  return `/* 渐变背景 */\nbackground: ${bg};`;
+}
+
+function genCanvas(){
+  const g=state.gradient;
+  let code=`// 渐变网格效果 - Canvas 绘制代码\nconst canvas = document.querySelector('canvas');\nconst ctx = canvas.getContext('2d');\nconst w = canvas.width, h = canvas.height;\n\n`;
+
+    code += `// 网格渐变 (${g.mesh.length} 个色点)\n`;
+    code += `const mesh = ${JSON.stringify(g.mesh,null,2)};\nconst blend = ${g.blend};\nconst noise = ${g.noise||0};\n\nctx.fillStyle = mesh[0].color;\nctx.fillRect(0, 0, w, h);\n\nmesh.forEach(p => {
+  if (p.visible === false) return;
+  const cx = p.x * w, cy = p.y * h;
+  const rad = Math.max(1, Math.hypot(w, h) * blend);
+  const op = p.opacity != null ? p.opacity : 1;
+  const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, rad);
+  rg.addColorStop(0, p.color);
+  rg.addColorStop(0.5, p.color + Math.round(op*128).toString(16).padStart(2,'0'));
+  rg.addColorStop(1, p.color + '00');
+  ctx.fillStyle = rg;
+  ctx.fillRect(0, 0, w, h);
+});
+`;
+
+  if(g.noise>0){
+    code += `// 电影胶片噪点（静态）
+if(noise > 0){
+  const noiseCanvas = document.createElement('canvas');
+  const ns = Math.max(w, h);
+  noiseCanvas.width = ns;
+  noiseCanvas.height = ns;
+  const nctx = noiseCanvas.getContext('2d');
+  const ndata = nctx.createImageData(ns, ns);
+  for (let i = 0; i < ndata.data.length; i += 4) {
+    const v = Math.random();
+    const offset = (v - 0.5) * 255;
+    ndata.data[i] = 128 + offset * 0.6;
+    ndata.data[i+1] = 128 + offset * 0.6;
+    ndata.data[i+2] = 128 + offset * 0.6;
+    ndata.data[i+3] = 255;
+  }
+  nctx.putImageData(ndata, 0, 0);
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.globalAlpha = noise / 100 * 0.7;
+  ctx.drawImage(noiseCanvas, 0, 0, w, h);
+  ctx.restore();
+}
+`;
+  }
+
+  return code;
+}
+
+function copyCode(tab){
+  let txt;
+  if(tab==='json') txt=JSON.stringify(state,null,2);
+  else if(tab==='css') txt=genCSS();
+  else txt=genCanvas();
+  navigator.clipboard.writeText(txt).then(()=>toast('代码已复制')).catch(()=>toast('复制失败'));
+}
+
+/* ============ Toast ============ */
+let toastTimer;
+function toast(msg){
+  const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),1800);
+}
+
+/* ============ 画布尺寸 ============ */
+function resizeCanvas(){
+  const w=Math.floor(window.innerWidth*dpr);
+  const h=Math.floor(window.innerHeight*dpr);
+  canvas.style.width=window.innerWidth+'px';
+  canvas.style.height=window.innerHeight+'px';
+  canvas.width=w;
+  canvas.height=h;
+  $('footSize').textContent=w+'×'+h;
+  invalidateNoise();
+}
+
+/* ============ 启动 ============ */
+resizeCanvas();
+init();
+</script>
+</body>
+</html>
