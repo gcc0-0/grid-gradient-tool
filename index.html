@@ -303,6 +303,31 @@
   .preset-item .actions button.del:hover{color:var(--danger);background:rgba(255,107,107,0.15)}
   .preset-item .actions svg{width:12px;height:12px}
 
+  /* ===== Builtin code sync (developer) ===== */
+  .sync-details{
+    margin-top:14px;border:1px solid var(--border-soft);
+    border-radius:12px;padding:0 12px;
+  }
+  .sync-details summary{
+    cursor:pointer;padding:10px 0;list-style:none;user-select:none;
+    font-size:10px;text-transform:uppercase;letter-spacing:1px;
+    font-weight:700;color:var(--text-dimmer);
+  }
+  .sync-details summary::-webkit-details-marker{display:none}
+  .sync-details[open] summary{border-bottom:1px dashed var(--border-soft)}
+  .sync-body{padding:10px 0 12px;display:flex;flex-direction:column;gap:8px}
+  .sync-status{font-size:11px;color:var(--text-dim)}
+  .sync-row{display:flex;gap:8px}
+  .sync-btn{
+    flex:1;padding:7px 10px;font-size:11px;
+    border:1px solid rgba(255,255,255,0.2);border-radius:8px;
+    background:rgba(255,255,255,0.08);color:var(--text);
+    cursor:pointer;transition:.15s;
+  }
+  .sync-btn:hover{background:rgba(255,255,255,0.16)}
+  .sync-btn.ghost{background:transparent;color:var(--text-dim);border-color:var(--border-soft)}
+  .sync-tip{font-size:10px;line-height:1.6;color:var(--text-dimmer)}
+
   .hint{font-size:10px;color:var(--text-dimmer);margin-top:4px;line-height:1.5}
 
   /* ===== Mesh stop row ===== */
@@ -770,7 +795,7 @@
           <span class="loop-track"><span class="loop-thumb"></span></span>
           <span class="loop-text">关闭</span>
         </button>
-        <span class="loop-hint">开启后导出首尾衔接的循环动画</span>
+        <span class="loop-hint" id="loopHint">开启后导出首尾衔接的循环动画</span>
       </div>
     </div>
     <button class="export-big-btn" id="btnStartExport">导出 WEBM · 1080p · 6秒</button>
@@ -786,6 +811,18 @@
 
   <div class="section-title">预设方案</div>
   <div class="preset-list" id="presetList"></div>
+
+  <details class="sync-details" id="syncDetails">
+    <summary>代码同步 · 开发者</summary>
+    <div class="sync-body">
+      <div class="sync-status" id="syncStatus">未连接</div>
+      <div class="sync-row">
+        <button class="sync-btn" id="btnSyncConnect">连接代码文件 (index.html)</button>
+        <button class="sync-btn ghost" id="btnSyncDisconnect" style="display:none">断开</button>
+      </div>
+      <div class="sync-tip">连接本地 index.html 后：保存预设将直接写入代码内置预设（BUILTIN_PRESETS），删除内置预设会从代码文件永久移除。修改后 git push 部署，所有人打开链接即可看到，访客无需任何授权。</div>
+    </div>
+  </details>
 </aside>
 
 <!-- ===== Right panel ===== -->
@@ -944,13 +981,25 @@ const LS_KEY='mesh_gradient_studio';
 
 const LS_IMG_KEY=LS_KEY+'_overlay_img';
 
-function loadState(){
+// 每次覆盖保存前，上一份完整快照自动备份到这个 key，
+// 用于版本迭代/异常情况下找回用户预设
+const LS_BACKUP_KEY=LS_KEY+'_backup';
+
+function parseSnapshot(raw){
   try{
-    const raw=localStorage.getItem(LS_KEY);
     if(!raw)return null;
     const d=JSON.parse(raw);
-    return d;
+    return (d&&typeof d==='object')?d:null;
   }catch(e){return null;}
+}
+
+function loadState(){
+  const main=parseSnapshot(localStorage.getItem(LS_KEY));
+  if(main&&Array.isArray(main.presets))return main;
+  // 主数据缺失或损坏时，回退备份，避免用户预设被清空重置
+  const backup=parseSnapshot(localStorage.getItem(LS_BACKUP_KEY));
+  if(backup&&Array.isArray(backup.presets))return backup;
+  return main;
 }
 function saveState(){
   const builtinIds=new Set(BUILTIN_PRESETS.map(b=>b.id));
@@ -973,11 +1022,259 @@ function saveState(){
   const snapshot={
     current: stateCopy,
     presets: presets.filter(p=>!p.builtin),
+    // 「写入代码」生成的内置预设的本地镜像：部署前刷新页面仍可见；部署后与代码内置自动去重
+    shadowPresets: presets.filter(p=>p.builtin&&p.__shadow)
+      .map(p=>({id:p.id,name:p.name,builtin:true,data:p.data})),
     removedBuiltinIds: removedBuiltinIds,
     renamedBuiltins: renamedBuiltins,
     activeId: activePresetId,
+    deletedCustomIds: deletedCustomIds,
   };
-  try{ localStorage.setItem(LS_KEY, JSON.stringify(snapshot)); }catch(e){}
+  const json=JSON.stringify(snapshot);
+  try{
+    // 覆盖前把上一份快照备份，保留一代历史用于找回丢失的预设
+    const prev=localStorage.getItem(LS_KEY);
+    if(prev&&prev!==json){
+      try{ localStorage.setItem(LS_BACKUP_KEY, prev); }catch(e){}
+    }
+    localStorage.setItem(LS_KEY, json);
+  }catch(e){}
+}
+
+/* ============ 内置预设代码同步（写回 index.html，开发者功能） ============ */
+// 目标：作者保存/删除内置预设时，直接修改本地 index.html 的 BUILTIN_PRESETS 数组，
+// git push 部署后所有人可见。访客纯只读浏览，无需任何授权。
+// Chrome/Edge 用 File System Access API 直接写文件；
+// 其他浏览器（Safari/Firefox）降级为「复制/下载代码片段 + 手动粘贴」。
+const FS_DB_NAME='mesh_gradient_studio_sync';
+const FS_STORE='kv';
+const FS_KEY_SOURCE='source_html_handle';
+const FS_KEY_MANUAL='manual_sync_wanted';
+const SENTINEL_START='/*__BUILTIN_PRESETS_START__*/';
+const SENTINEL_END='/*__BUILTIN_PRESETS_END__*/';
+
+let sourceHandle=null;      // 已连接的 index.html 句柄（持久化在 IndexedDB）
+let sourceGranted=false;    // 本次会话是否已获得读写授权
+let manualSyncWanted=false; // 不支持写文件的浏览器里，用户仍希望手动同步
+
+function fsSupported(){return typeof window.showOpenFilePicker==='function';}
+function fsConnected(){return !!sourceHandle;}
+
+function idbOpenDb(){
+  return new Promise((resolve,reject)=>{
+    const req=indexedDB.open(FS_DB_NAME,1);
+    req.onupgradeneeded=()=>{req.result.createObjectStore(FS_STORE);};
+    req.onsuccess=()=>resolve(req.result);
+    req.onerror=()=>reject(req.error);
+  });
+}
+async function idbGet(key){
+  try{
+    const db=await idbOpenDb();
+    return await new Promise((resolve)=>{
+      const tx=db.transaction(FS_STORE,'readonly');
+      const req=tx.objectStore(FS_STORE).get(key);
+      req.onsuccess=()=>resolve(req.result||null);
+      req.onerror=()=>resolve(null);
+    });
+  }catch(e){return null;}
+}
+async function idbSet(key,val){
+  try{
+    const db=await idbOpenDb();
+    return await new Promise((resolve)=>{
+      const tx=db.transaction(FS_STORE,'readwrite');
+      tx.objectStore(FS_STORE).put(val,key);
+      tx.oncomplete=()=>resolve(true);
+      tx.onerror=()=>resolve(false);
+    });
+  }catch(e){return false;}
+}
+async function idbDel(key){
+  try{
+    const db=await idbOpenDb();
+    return await new Promise((resolve)=>{
+      const tx=db.transaction(FS_STORE,'readwrite');
+      tx.objectStore(FS_STORE).delete(key);
+      tx.oncomplete=()=>resolve(true);
+      tx.onerror=()=>resolve(false);
+    });
+  }catch(e){return false;}
+}
+
+async function fsEnsurePermission(){
+  if(!sourceHandle)return false;
+  if(sourceGranted)return true;
+  try{
+    if(await sourceHandle.queryPermission({mode:'readwrite'})==='granted'){sourceGranted=true;return true;}
+    if(await sourceHandle.requestPermission({mode:'readwrite'})==='granted'){sourceGranted=true;return true;}
+  }catch(e){}
+  return false;
+}
+
+async function fsConnect(){
+  if(!fsSupported()){
+    manualSyncWanted=true;
+    await idbSet(FS_KEY_MANUAL,true);
+    updateSyncUI();
+    toast('当前浏览器不支持直接写文件。保存预设时会自动复制预设代码，请手动粘贴到 index.html 的 BUILTIN_PRESETS 数组（建议用 Chrome/Edge 实现自动写入）');
+    return;
+  }
+  try{
+    const [h]=await window.showOpenFilePicker({
+      types:[{description:'index.html 源文件',accept:{'text/html':['.html','.htm']}}],
+      multiple:false,
+    });
+    const text=await (await h.getFile()).text();
+    if(parseBuiltinBlock(text)===null){
+      toast('所选文件缺少预设同步标记或格式不符，请选择最新版 index.html');
+      return;
+    }
+    sourceHandle=h;sourceGranted=true;
+    await idbSet(FS_KEY_SOURCE,h);
+    manualSyncWanted=false;
+    updateSyncUI();
+    toast('已连接代码文件：'+h.name+'。保存预设将直接写入 BUILTIN_PRESETS');
+  }catch(e){
+    if(e&&e.name!=='AbortError')toast('连接失败：'+(e.message||e.name||e));
+  }
+}
+
+async function fsDisconnect(){
+  sourceHandle=null;sourceGranted=false;
+  await idbDel(FS_KEY_SOURCE);
+  updateSyncUI();
+  toast('已断开代码文件连接');
+}
+
+// 启动时恢复上次连接的文件句柄（权限可能需要在下次操作时重新授权）
+async function fsRestore(){
+  try{
+    manualSyncWanted=(await idbGet(FS_KEY_MANUAL))===true;
+    const h=await idbGet(FS_KEY_SOURCE);
+    if(h&&typeof h.getFile==='function'){
+      sourceHandle=h;
+      try{sourceGranted=(await h.queryPermission({mode:'readwrite'})==='granted');}catch(e){sourceGranted=false;}
+    }
+  }catch(e){}
+  updateSyncUI();
+}
+
+function updateSyncUI(){
+  const st=$('syncStatus');
+  if(!st)return;
+  const conn=$('btnSyncConnect'),dis=$('btnSyncDisconnect');
+  if(!fsSupported()){
+    st.textContent=manualSyncWanted?'手动同步模式（此浏览器不支持直接写文件）':'未连接（此浏览器不支持直接写文件）';
+    conn.textContent='使用手动同步';
+    conn.style.display='';
+    dis.style.display='none';
+  }else if(sourceHandle&&sourceGranted){
+    st.textContent='已连接：'+sourceHandle.name;
+    conn.style.display='none';
+    dis.style.display='';
+  }else if(sourceHandle){
+    st.textContent='已记住文件：'+sourceHandle.name+'（下次操作时会请求授权）';
+    conn.textContent='重新选择文件';
+    conn.style.display='';
+    dis.style.display='';
+  }else{
+    st.textContent='未连接';
+    conn.textContent='连接代码文件 (index.html)';
+    conn.style.display='';
+    dis.style.display='none';
+  }
+  renderPresets(); // 刷新自定义预设上「写入代码」按钮的显隐
+}
+
+/* ---- 代码文件内容解析与生成 ---- */
+// 哨兵之间是纯 JSON（每行一个预设对象），可以安全地 JSON.parse 回来。
+// 注意：本文件里 SENTINEL_* 常量定义处也包含相同字面量，
+// 因此必须用「行首锚定」正则定位独占一行的真正哨兵，避免匹配到常量定义。
+function builtinBlockRange(text){
+  const ms=/^[ \t]*\/\*__BUILTIN_PRESETS_START__\*\/[ \t]*$/m.exec(text);
+  const me=/^[ \t]*\/\*__BUILTIN_PRESETS_END__\*\/[ \t]*$/m.exec(text);
+  if(!ms||!me||me.index<=ms.index)return null;
+  return {headStart:ms.index, headEnd:ms.index+ms[0].length, tailStart:me.index, tailEnd:me.index+me[0].length};
+}
+function parseBuiltinBlock(text){
+  const r=builtinBlockRange(text);
+  if(!r)return null;
+  const block=text.slice(r.headEnd,r.tailStart).replace(/,\s*$/,'').trim();
+  try{
+    const arr=JSON.parse('['+block+']');
+    return Array.isArray(arr)?arr.filter(p=>p&&p.id&&p.data):null;
+  }catch(e){return null;}
+}
+function serializeBuiltinsForCode(list){
+  return list.map(p=>'  '+JSON.stringify({id:p.id,name:p.name,builtin:true,data:p.data})).join(',\n');
+}
+function patchSourceText(text,list){
+  const r=builtinBlockRange(text);
+  if(!r)return null;
+  const block=list.length?serializeBuiltinsForCode(list):'';
+  return text.slice(0,r.headEnd)+'\n'+block+'\n'+text.slice(r.tailStart);
+}
+
+// 执行一次内置预设同步操作：op = 'add' | 'remove' | 'rename'
+async function syncBuiltinOp(op,preset){
+  if(!fsConnected()||!(await fsEnsurePermission())){
+    toast('未连接代码文件或未授权写入');
+    return false;
+  }
+  try{
+    const file=await sourceHandle.getFile();
+    const text=await file.text();
+    let list=parseBuiltinBlock(text);
+    if(list===null){
+      toast('代码文件中预设区块格式异常，未写入（请确认连接的是最新版 index.html）');
+      return false;
+    }
+    if(op==='add'){
+      const entry={id:preset.id,name:preset.name,builtin:true,data:preset.data};
+      const idx=list.findIndex(p=>p.id===preset.id);
+      if(idx>=0)list[idx]=entry;else list.push(entry);
+    }else if(op==='remove'){
+      list=list.filter(p=>p.id!==preset.id);
+    }else if(op==='rename'){
+      const t=list.find(p=>p.id===preset.id);
+      if(t)t.name=preset.name;
+    }
+    const next=patchSourceText(text,list);
+    if(next===null){
+      toast('代码文件格式异常，未写入');
+      return false;
+    }
+    const w=await sourceHandle.createWritable();
+    await w.write(next);
+    await w.close();
+    return true;
+  }catch(e){
+    toast('写入代码文件失败：'+(e.message||e.name||e));
+    return false;
+  }
+}
+
+// 不支持文件写入的浏览器：复制/下载代码片段，手动粘贴进 index.html
+async function manualSyncSnippet(preset){
+  const line='  '+JSON.stringify({id:preset.id,name:preset.name,builtin:true,data:preset.data})+',';
+  let copied=false;
+  try{await navigator.clipboard.writeText(line);copied=true;}catch(e){}
+  try{
+    const blob=new Blob([
+      '将下面一行粘贴到 index.html 的 BUILTIN_PRESETS 数组中（/*__BUILTIN_PRESETS_END__*/ 标记之前）：\n\n',
+      line,
+      '\n\n保存后 git push 部署，所有人即可看到该内置预设。\n'
+    ],{type:'text/plain;charset=utf-8'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='builtin-preset-snippet.txt';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+  }catch(e){}
+  toast(copied
+    ?'已复制预设代码（附带下载说明文件），粘贴到 index.html 的 BUILTIN_PRESETS 数组末尾即可'
+    :'已下载说明文件，按其中的说明把预设粘贴进 index.html 的 BUILTIN_PRESETS 数组');
 }
 
 /* ============ URL参数功能 ============ */
@@ -1061,7 +1358,8 @@ const defaultState = () => ({
     text:'火山引擎云搜索服务',
     hidden:false,
     imageData:null,
-    scale:1,
+    textScale:1,   // 文字缩放（独立）
+    imageScale:1,  // 界面图片缩放（独立）
   },
 });
 
@@ -1297,31 +1595,19 @@ let presets=[];
 let activePresetId=null;
 let renamingPresetId=null;
 let savingCurrent=false;
+// 用户主动删除过的自定义预设 id（用于区分"用户删除"和"意外丢失"，防止误找回）
+let deletedCustomIds=[];
 
 function genId(){return 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);}
 
+// 内置预设（随代码部署，所有人可见）。
+// 两个哨兵注释之间是「预设同步」功能的读写锚点：保存/删除内置预设时，
+// 会直接改写这里的内容（仅作者本机，见「代码同步」面板），格式为每行一个 JSON 对象。
 const BUILTIN_PRESETS=[
-  {
-    id:'p_1787566741425_d6ib2',
-    name:'淡蓝色渐变',
-    builtin:true,
-    data:{
-      gradient:{
-        type:'mesh',
-        mesh:[
-          {x:0.22,y:0.28,color:'#ffffff',opacity:1,visible:true},
-          {x:0.28,y:0.78,color:'#0663ff',opacity:0.4,visible:true},
-          {x:0.74,y:0.74,color:'#ffffff',opacity:1,visible:true},
-          {x:0.70,y:0.22,color:'#febb57',opacity:0.2,visible:true},
-        ],
-        flow:true,
-        flowSpeed:1.6,
-        turbulence:1.25,
-        blend:0.66,
-        noise:20,
-      }
-    }
-  }
+/*__BUILTIN_PRESETS_START__*/
+  {"id":"p_1787566741425_d6ib2","name":"淡蓝色渐变","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.22,"y":0.28,"color":"#ffffff","opacity":1,"visible":true},{"x":0.28,"y":0.78,"color":"#0663ff","opacity":0.4,"visible":true},{"x":0.74,"y":0.74,"color":"#ffffff","opacity":1,"visible":true},{"x":0.7,"y":0.22,"color":"#febb57","opacity":0.2,"visible":true}],"flow":true,"flowSpeed":1.6,"turbulence":1.25,"blend":0.66,"noise":20}}},
+  {"id":"p_1787801822469_14fdf","name":"淡蓝色渐变","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.2057074910820452,"y":0.1506849315068493,"color":"#ffffff","opacity":1,"visible":true},{"x":0.10107015457788347,"y":0.9915700737618546,"color":"#0663ff","opacity":0.2,"visible":true},{"x":0.8347205707491082,"y":0.8724973656480506,"color":"#ffffff","opacity":1,"visible":true},{"x":0.7919143876337693,"y":0.007376185458377239,"color":"#57b8fe","opacity":0.3,"visible":true}],"flow":true,"flowSpeed":1.6,"turbulence":1.25,"blend":0.4,"noise":24}}}
+/*__BUILTIN_PRESETS_END__*/
 ];
 
 function cloneBuiltins(){
@@ -1337,12 +1623,14 @@ let editingMesh=false;
 let dragIdx=-1;
 
 function init(){
-  // 优先级：URL参数 > localStorage > 默认
   const urlData=loadFromUrl();
   const saved=loadState();
-  
+
+  // 始终从 localStorage 加载 deletedCustomIds（防止 URL 分支将其重置为空）
+  deletedCustomIds=Array.isArray(saved?.deletedCustomIds)?saved.deletedCustomIds:[];
+
   if(urlData){
-    // 从URL加载配置
+    // 从URL加载配置（状态优先用URL，因为分享链接的意图是复现该效果）
     state={...defaultState(),...(saved?.current||{})};
     if(urlData.gradient){
       state.gradient={...defaultState().gradient,...urlData.gradient};
@@ -1352,17 +1640,6 @@ function init(){
           if(p.visible==null)p.visible=true;
         });
       }
-    }
-    if(state.videoFormat==null)state.videoFormat='webm';
-    if(state.exportLoop==null)state.exportLoop=false;
-    // 兼容旧版：480p(0)/720p(1) 已移除，重置为 1080p(2)
-    if(state.exportScale==null||state.exportScale<2)state.exportScale=2;
-    // 兼容旧版：15s/30s 已移除，重置为 6s
-    if(![3,6,10].includes(state.exportDuration))state.exportDuration=6;
-    // 加载预设：内置 + URL中的自定义预设
-    presets=cloneBuiltins();
-    if(urlData.presets?.length){
-      presets=[...cloneBuiltins(),...urlData.presets];
     }
     activePresetId=urlData.activeId||null;
     toast('已从链接加载配置');
@@ -1376,23 +1653,49 @@ function init(){
         if(p.visible==null)p.visible=true;
       });
     }
-    if(state.videoFormat==null)state.videoFormat='webm';
-    if(state.exportLoop==null)state.exportLoop=false;
-    // 兼容旧版：480p(0)/720p(1) 已移除，重置为 1080p(2)
-    if(state.exportScale==null||state.exportScale<2)state.exportScale=2;
-    // 兼容旧版：15s/30s 已移除，重置为 6s
-    if(![3,6,10].includes(state.exportDuration))state.exportDuration=6;
-    const removedBuiltinIds=new Set(saved.removedBuiltinIds||[]);
-    const renamedBuiltins=saved.renamedBuiltins||{};
+    activePresetId=saved.activeId||null;
+  } else {
+    presets=cloneBuiltins();
+    activePresetId='p_1787566741425_d6ib2';
+  }
+
+  // 统一的状态兼容处理（URL和localStorage分支共享）
+  if(state.videoFormat==null)state.videoFormat='webm';
+  if(state.exportLoop==null)state.exportLoop=false;
+  if(state.exportScale==null||state.exportScale<2)state.exportScale=2;
+  if(![3,6,10].includes(state.exportDuration))state.exportDuration=6;
+
+  // ===== 统一预设加载：无论 URL 还是 localStorage，都合并所有来源的自定义预设 =====
+  // 预设是核心价值，绝不因为 URL 快照而丢弃 localStorage 中的预设
+  if(urlData || saved){
+    const removedBuiltinIds=new Set(saved?.removedBuiltinIds||[]);
+    const renamedBuiltins=saved?.renamedBuiltins||{};
     const activeBuiltinPresets=cloneBuiltins().filter(p=>!removedBuiltinIds.has(p.id));
     activeBuiltinPresets.forEach(p=>{
       if(renamedBuiltins[p.id])p.name=renamedBuiltins[p.id];
     });
-    const savedCustomPresets=(saved.presets||[]).filter(p=>{
-      // 清理已不存在的内置预设 id（旧版本遗留）
-      return !(p.builtin&&p.id==='builtin_default');
+
+    // 「写入代码」生成的内置预设镜像：代码里还没有时（未部署/未刷新）以镜像显示，部署后自动去重
+    const builtinIds=new Set(activeBuiltinPresets.map(p=>p.id));
+    const shadowPresets=(saved?.shadowPresets||[])
+      .filter(s=>s&&s.id&&s.data&&!builtinIds.has(s.id))
+      .map(s=>({...s,builtin:true,__shadow:true}));
+    const shadowIds=new Set(shadowPresets.map(s=>s.id));
+
+    // 收集所有来源的自定义预设：localStorage + URL（URL优先覆盖同名，因为链接是用户主动分享的最新意图）
+    const customPresetMap=new Map();
+
+    // 先加入 localStorage 中的（与内置/镜像 id 相同的跳过，避免重复显示）
+    (saved?.presets||[]).forEach(p=>{
+      if(p&&p.id&&!(p.builtin&&p.id==='builtin_default')&&!builtinIds.has(p.id)&&!shadowIds.has(p.id))customPresetMap.set(p.id,p);
     });
-    presets=[...activeBuiltinPresets,...savedCustomPresets];
+
+    // 再加入 URL 中的（覆盖同名）
+    (urlData?.presets||[]).forEach(p=>{
+      if(p&&p.id&&!(p.builtin&&p.id==='builtin_default')&&!builtinIds.has(p.id)&&!shadowIds.has(p.id))customPresetMap.set(p.id,p);
+    });
+
+    presets=[...activeBuiltinPresets,...shadowPresets,...customPresetMap.values()];
     presets.forEach(pr=>{
       if(pr.data?.gradient?.mesh){
         pr.data.gradient.mesh.forEach(p=>{
@@ -1401,18 +1704,40 @@ function init(){
         });
       }
     });
-    activePresetId=saved.activeId||null;
-  } else {
-    presets=cloneBuiltins();
-    activePresetId='p_1787566741425_d6ib2';
   }
+
+  // ===== 防丢失：从备份快照自动找回意外消失的自定义预设 =====
+  // 版本迭代/数据异常可能让预设静默丢失；只要不是用户主动删除的，都从备份恢复
+  try{
+    const backup=parseSnapshot(localStorage.getItem(LS_BACKUP_KEY));
+    if(backup&&Array.isArray(backup.presets)){
+      const existingIds=new Set(presets.map(p=>p.id));
+      const deletedSet=new Set(deletedCustomIds);
+      const recovered=(backup.presets||[]).filter(p=>{
+        return p&&!p.builtin
+          && p.id!=='builtin_default'
+          && !existingIds.has(p.id)
+          && !deletedSet.has(p.id)
+          && p.data; // 结构完整的才算有效预设
+      });
+      if(recovered.length){
+        presets=[...presets,...recovered];
+        setTimeout(()=>toast('检测到预设丢失，已自动恢复 '+recovered.length+' 个预设'),600);
+        saveState(); // 立即持久化，避免关闭页面后再次丢失
+      }
+    }
+  }catch(e){}
 
   // 恢复 overlay 状态（兼容旧版无 overlay 字段）
   if(!state.overlay)state.overlay={...defaultState().overlay};
   if(state.overlay.mode==null)state.overlay.mode='none';
   if(state.overlay.text==null)state.overlay.text='火山引擎云搜索服务';
   if(state.overlay.hidden==null)state.overlay.hidden=false;
-  if(state.overlay.scale==null)state.overlay.scale=1;
+  // 旧版单一 scale 字段迁移：拆分为文字/图片两个独立参数
+  const legacyScale=(typeof state.overlay.scale==='number')?state.overlay.scale:null;
+  if(state.overlay.textScale==null)state.overlay.textScale=legacyScale!=null?legacyScale:1;
+  if(state.overlay.imageScale==null)state.overlay.imageScale=legacyScale!=null?legacyScale:1;
+  delete state.overlay.scale;
   // 恢复图片数据
   try{
     const imgData=localStorage.getItem(LS_IMG_KEY);
@@ -1423,6 +1748,7 @@ function init(){
   renderPresets();
   refreshUI();
   bindEvents();
+  fsRestore(); // 恢复上次连接的代码文件句柄（代码同步·开发者）
   requestAnimationFrame(loop);
 }
 
@@ -1449,11 +1775,13 @@ function turbulence(x,y,t,scale){
   const phase2 = Math.PI * 0.7;
   for(let i=0;i<octaves;i++){
     // 使用单频 sin 叠加，避免乘积形式，曲线更平滑
-    const tScaled = t * scale * (0.4 + i * 0.12);
+    // 时间倍率 0.4/0.6/0.8/1.0（整数比 2:3:4:5）→ 湍流场对 t 严格周期，周期 = 10π/scale，
+    // 保证「循环模式」导出的动画首尾相位一致、无缝衔接
+    const tScaled = t * scale * (0.4 + i * 0.2);
     v += amp * (
       Math.sin(x*freq*1.3 + y*freq*0.9 + tScaled + phase1 + i*0.7) * 0.5 +
-      Math.cos(x*freq*0.8 - y*freq*1.1 + tScaled*0.9 + phase2 + i*1.3) * 0.3 +
-      Math.sin((x+y)*freq + tScaled*1.1 + i*2.3) * 0.2
+      Math.cos(x*freq*0.8 - y*freq*1.1 + tScaled + phase2 + i*1.3) * 0.3 +
+      Math.sin((x+y)*freq + tScaled + i*2.3) * 0.2
     );
     norm += amp;
     amp *= 0.55;
@@ -1481,7 +1809,7 @@ function drawTo(c,w,h,t){
       py=clamp(p.y+ny,0,1);
     } else if(g.flow){
       px=clamp(p.x+Math.sin(t*g.flowSpeed+i*1.7)*0.05,0,1);
-      py=clamp(p.y+Math.cos(t*g.flowSpeed*0.8+i*2.1)*0.05,0,1);
+      py=clamp(p.y+Math.cos(t*g.flowSpeed+i*2.1)*0.05,0,1);
     }
     const cx=px*w, cy=py*h;
     const rad=Math.max(1,Math.hypot(w,h)*g.blend);
@@ -1514,8 +1842,8 @@ function preloadOverlayImage(){
 function drawOverlay(c,w,h){
   const ov=state.overlay;
   if(!ov||ov.mode==='none'||ov.hidden)return;
-  const scale=Math.max(0.2,Math.min(2,ov.scale||1));
   if(ov.mode==='text'){
+    const scale=Math.max(0.2,Math.min(2,ov.textScale||1));
     const text=ov.text||'';
     if(!text)return;
     const fontSize=Math.max(12,Math.round(h*0.10*scale));
@@ -1532,6 +1860,7 @@ function drawOverlay(c,w,h){
   }else if(ov.mode==='image'){
     preloadOverlayImage();
     if(!overlayImage)return;
+    const scale=Math.max(0.2,Math.min(2,ov.imageScale||1));
     const maxW=w*0.80*scale;
     const maxH=h*0.50*scale;
     let iw=overlayImage.width;
@@ -1654,6 +1983,10 @@ function createPresetItem(p, isBuiltin){
     <div class="info">
       <div class="name">${p.name}</div>
       <div class="actions">
+        ${(!p.builtin&&(fsConnected()||manualSyncWanted))?`
+        <button class="sync-up" title="写入代码（成为内置预设，部署后所有人可见）">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4"/><path d="M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
+        </button>`:''}
         <button class="rename-btn" title="重命名">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
         </button>
@@ -1665,9 +1998,29 @@ function createPresetItem(p, isBuiltin){
   `;
 
   el.addEventListener('click',(e)=>{
-    if(e.target.closest('.rename-btn')||e.target.closest('.del'))return;
+    if(e.target.closest('.rename-btn')||e.target.closest('.del')||e.target.closest('.sync-up'))return;
     applyPreset(p);
   });
+
+  // 写入代码：把自定义预设转为内置预设并写进 index.html
+  const syncUpBtn=el.querySelector('.sync-up');
+  if(syncUpBtn){
+    syncUpBtn.addEventListener('click',async(e)=>{
+      e.stopPropagation();
+      if(!fsConnected()){
+        manualSyncSnippet(p);
+        return;
+      }
+      if(!confirm('将「'+p.name+'」写入代码文件作为内置预设？\n（git push 部署后所有人可见）'))return;
+      const ok=await syncBuiltinOp('add',p);
+      if(ok){
+        p.builtin=true;
+        p.__shadow=true;
+        saveState();renderPresets();
+        toast('已写入代码内置预设：'+p.name+'（push 部署后所有人可见）');
+      }
+    });
+  }
 
   const renBtn=el.querySelector('.rename-btn');
   if(renBtn){
@@ -1680,10 +2033,30 @@ function createPresetItem(p, isBuiltin){
   if(delBtn){
     delBtn.addEventListener('click',(e)=>{
       e.stopPropagation();
-      if(confirm('删除预设 "'+p.name+'"?')){
+      const doLocalRemove=()=>{
+        // 记录用户主动删除的自定义预设 id，找回逻辑据此跳过它们
+        if(!p.builtin)deletedCustomIds=[...new Set([...deletedCustomIds,p.id])];
         presets=presets.filter(x=>x.id!==p.id);
         if(activePresetId===p.id)activePresetId=null;
-        saveState();renderPresets();toast('已删除');
+        saveState();renderPresets();
+      };
+      if(p.builtin&&fsConnected()){
+        // 内置预设 + 已连接代码文件：从 index.html 中永久删除
+        if(!confirm('删除预设 "'+p.name+'"?'))return;
+        if(!confirm('该内置预设已写入代码文件，删除后将从 index.html 中永久移除（git push 部署后所有人不再可见）。确定删除？'))return;
+        syncBuiltinOp('remove',p).then(ok=>{
+          if(ok){
+            doLocalRemove();
+            toast('已从代码文件永久删除');
+          }else if(confirm('代码文件写入失败。是否仅在本地删除？')){
+            doLocalRemove();
+            toast('已删除（仅本地）');
+          }
+        });
+      }else{
+        if(!confirm('删除预设 "'+p.name+'"?'))return;
+        doLocalRemove();
+        toast('已删除');
       }
     });
   }
@@ -1718,16 +2091,24 @@ function closeRenameModal(){
   renamingPresetId=null;
 }
 
-function saveRename(){
+async function saveRename(){
   const name=$('renameInput').value.trim();
   if(!name){toast('名称不能为空');return;}
   const p=presets.find(x=>x.id===renamingPresetId);
   if(!p)return;
+  const oldName=p.name;
   p.name=name;
+  // 内置预设 + 已连接代码文件：重命名同步写入 index.html
+  if(p.builtin&&fsConnected()){
+    const ok=await syncBuiltinOp('rename',p);
+    if(!ok)toast('本地已重命名，但代码文件写入失败');
+    else toast('已重命名并同步到代码文件');
+  }else{
+    toast('已重命名');
+  }
   saveState();
   renderPresets();
   closeRenameModal();
-  toast('已重命名');
 }
 
 /* ============ UI 刷新 ============ */
@@ -1787,9 +2168,11 @@ function syncOverlayUI(){
   const scaleField=$('overlayScaleField');
   const scaleInput=$('overlayScale');
   const scaleVal=$('overlayScaleVal');
+  // 滑块展示的是当前激活模式自己的缩放参数（文字/图片独立）
+  const curScale=ov.mode==='image'?(ov.imageScale||1):(ov.textScale||1);
   if(scaleField)scaleField.style.display=ov.mode!=='none'?'block':'none';
-  if(scaleInput)scaleInput.value=Math.round((ov.scale||1)*100);
-  if(scaleVal)scaleVal.textContent=Math.round((ov.scale||1)*100)+'%';
+  if(scaleInput)scaleInput.value=Math.round(curScale*100);
+  if(scaleVal)scaleVal.textContent=Math.round(curScale*100)+'%';
 }
 
 /* ============ Export dropdown UI sync ============ */
@@ -1847,6 +2230,9 @@ function updateExportDropdownUI(){
   if(durVal)durVal.textContent=dur+'s';
   const duration=$('duration');
   if(duration)duration.value=dur;
+
+  // 循环模式实际时长提示
+  updateLoopHint();
 }
 
 /* ============ Export dropdown toggle ============ */
@@ -2032,9 +2418,9 @@ function renderMesh(){
 
 /* ============ 事件绑定 ============ */
 function bindEvents(){
-  $('flow').addEventListener('change',e=>{state.gradient.flow=e.target.checked;saveState();});
-  $('flowSpeed').addEventListener('input',e=>{state.gradient.flowSpeed=+e.target.value;$('flowSpeedVal').textContent=(+e.target.value).toFixed(2);updateCode();saveState();});
-  $('turbulence').addEventListener('input',e=>{state.gradient.turbulence=+e.target.value;$('turbulenceVal').textContent=(+e.target.value).toFixed(2);updateCode();saveState();});
+  $('flow').addEventListener('change',e=>{state.gradient.flow=e.target.checked;updateLoopHint();saveState();});
+  $('flowSpeed').addEventListener('input',e=>{state.gradient.flowSpeed=+e.target.value;$('flowSpeedVal').textContent=(+e.target.value).toFixed(2);updateLoopHint();updateCode();saveState();});
+  $('turbulence').addEventListener('input',e=>{state.gradient.turbulence=+e.target.value;$('turbulenceVal').textContent=(+e.target.value).toFixed(2);updateLoopHint();updateCode();saveState();});
   $('blend').addEventListener('input',e=>{state.gradient.blend=+e.target.value;$('blendVal').textContent=(+e.target.value).toFixed(2);updateCode();saveState();});
   $('noise').addEventListener('input',e=>{state.gradient.noise=+e.target.value;$('noiseVal').textContent=+e.target.value;updateCode();saveState();});
 
@@ -2087,11 +2473,9 @@ function bindEvents(){
     toggleFullscreen();
   });
 
-  $('btnDownloadPng').addEventListener('click',async ()=>{
-    // 在用户手势内先弹出保存位置，避免录制/生成完成后被浏览器拦截
-    const handle=await requestSaveHandle(`gradient-${Date.now()}.png`);
-    if(handle===false){pendingSaveHandle=null;return;} // 用户取消
-    pendingSaveHandle=handle||null;
+  $('btnDownloadPng').addEventListener('click',()=>{
+    // 新导出流程：先检查预览 → 渲染 → 渲染完成后才弹保存框
+    // 无预览：直接渲染；有预览：先弹确认窗（选"是"关闭预览后继续）
     checkOverlayBeforeExport(()=>exportPng());
   });
 
@@ -2144,28 +2528,17 @@ function bindEvents(){
   }
 
   // Big export button
-  $('btnStartExport').addEventListener('click',async ()=>{
+  $('btnStartExport').addEventListener('click',()=>{
     toggleExportDropdown(false);
-    // 在用户手势内先弹出保存位置（录制要数秒，事后弹窗会被浏览器拦截）
-    const ext=state.videoFormat==='webm'?'webm':'mp4';
-    const handle=await requestSaveHandle(`gradient-video-${Date.now()}.${ext}`);
-    if(handle===false){pendingSaveHandle=null;return;} // 用户取消导出
-    pendingSaveHandle=handle||null;
-    if(handle){
-      // 明确提示流程：文件位置已选定，渲染完成后会自动写入，避免用户误以为卡住
-      toast('已选择保存位置，渲染完成后将自动写入该文件...');
-    }
-    const doExport=async ()=>{
+    // 新导出流程：先检查预览 → 渲染（toast 进度）→ 渲染完成后才弹保存框
+    checkOverlayBeforeExport(async ()=>{
       try{
         await exportMp4();
       }catch(e){
         console.error('导出失败:',e);
-        // 编码/封装失败时，用户命名但未写入的占位文件已无意义，清理掉避免残留空视频
-        await discardPendingHandle();
         toast('导出失败: '+(e&&e.message||e));
       }
-    };
-    checkOverlayBeforeExport(doExport);
+    });
   });
 
   // Close dropdown when clicking outside
@@ -2194,7 +2567,6 @@ function bindEvents(){
       }
       if($('confirmModal').classList.contains('show')){
         $('confirmModal').classList.remove('show');
-        discardPendingHandle();
         pendingExportAction=null;
       }
     }
@@ -2209,12 +2581,16 @@ function bindEvents(){
     setTimeout(()=>$('renameInput').focus(),50);
   });
 
+  // 代码同步（开发者）
+  $('btnSyncConnect').addEventListener('click',fsConnect);
+  $('btnSyncDisconnect').addEventListener('click',fsDisconnect);
+
   // Rename/save confirm
   $('renameCancel').addEventListener('click',()=>{
     $('renameModal').classList.remove('show');
     renamingPresetId=null;savingCurrent=false;
   });
-  $('renameOk').addEventListener('click',()=>{
+  $('renameOk').addEventListener('click',async()=>{
     if(savingCurrent){
       const name=$('renameInput').value.trim();
       if(!name){toast('名称不能为空');return;}
@@ -2225,10 +2601,31 @@ function bindEvents(){
         builtin:false,
         data,
       };
-      presets.push(np);
-      activePresetId=np.id;
-      saveState();renderPresets();
-      toast('已保存预设：'+name);
+      if(fsConnected()){
+        // 已连接代码文件：直接写入 BUILTIN_PRESETS，成为内置预设
+        const ok=await syncBuiltinOp('add',np);
+        if(ok){
+          np.builtin=true;
+          np.__shadow=true; // 本地镜像：部署前刷新仍可见，部署后与代码内置去重
+          presets.push(np);
+          activePresetId=np.id;
+          saveState();renderPresets();
+          toast('已保存并写入代码内置预设：'+name+'（git push 部署后所有人可见）');
+        }else{
+          // 写文件失败，退回普通本地预设
+          presets.push(np);
+          activePresetId=np.id;
+          saveState();renderPresets();
+          toast('已保存为本地预设（代码文件写入失败）');
+        }
+      }else{
+        presets.push(np);
+        activePresetId=np.id;
+        saveState();renderPresets();
+        toast('已保存预设：'+name);
+        // 手动同步模式：附带复制/下载代码片段
+        if(manualSyncWanted)manualSyncSnippet(np);
+      }
       savingCurrent=false;
       $('renameModal').classList.remove('show');
       return;
@@ -2313,7 +2710,12 @@ function bindEvents(){
   if(scaleInput){
     scaleInput.addEventListener('input',e=>{
       const v=parseInt(e.target.value,10)||100;
-      state.overlay.scale=v/100;
+      // 只写当前激活模式的缩放参数，文字/图片互不影响
+      if(state.overlay.mode==='image'){
+        state.overlay.imageScale=v/100;
+      }else{
+        state.overlay.textScale=v/100;
+      }
       const scaleVal=$('overlayScaleVal');
       if(scaleVal)scaleVal.textContent=v+'%';
       saveState();
@@ -2323,12 +2725,21 @@ function bindEvents(){
   // 导出确认弹窗
   $('confirmYes').addEventListener('click',()=>{
     $('confirmModal').classList.remove('show');
-    if(pendingExportAction)pendingExportAction();
+    const action=pendingExportAction;
     pendingExportAction=null;
+    if(action){
+      // 选"是"= 真正关闭预览：所有预览效果隐藏关闭（文字内容/图片数据保留，可再次开启）
+      state.overlay.mode='none';
+      state.overlay.hidden=false;
+      syncOverlayUI();
+      saveState();
+      // 再执行正常导出逻辑
+      action();
+    }
   });
   $('confirmNo').addEventListener('click',()=>{
+    // 选"否"= 中断导出，退回上一步，预览保持开启
     $('confirmModal').classList.remove('show');
-    discardPendingHandle();
     pendingExportAction=null;
   });
 }
@@ -2356,24 +2767,48 @@ function makeExportCanvas(){
   off.width=sz.w; off.height=sz.h;
   return off;
 }
-/* ============ 导出文件保存（绕过浏览器视频预览） ============ */
-// 录制完成后再弹保存框会因“失去用户激活”被浏览器拒绝，
-// 所以必须在用户点击导出的瞬间弹出保存对话框，录制完成后写入。
-let pendingSaveHandle = null;
 
-// 清理"用户已命名但从未写入内容"的占位文件（导出失败/取消时调用，避免残留空视频）
-async function discardPendingHandle(){
-  if(pendingSaveHandle){
-    try{ await pendingSaveHandle.remove(); }catch(_){}
-    pendingSaveHandle=null;
-  }
+/* ============ 导出时序：速度对齐 + 无缝循环 ============ */
+// 动画函数都是 t 的周期函数：正弦流动周期 2π/flowSpeed，湍流流动周期 10π/flowSpeed。
+// - 非循环导出：相位随视频时间 1:1 前进 → 导出速度与预览完全一致
+// - 循环导出：时长自动取整为「完整流动周期的整数倍」(n·P) → 视频末帧相位 ≡ 首帧，
+//   播放时首尾无缝衔接；全程恒定速度（修复原余弦往返造成的变速 + 非循环问题）
+function flowPeriod(){
+  const g=state.gradient;
+  if(!g.flow) return 0;                 // 无流动 → 静态，天然无缝
+  const f=Math.max(0.01,g.flowSpeed||0);
+  return (g.turbulence>0 ? 5 : 1) * 2 * Math.PI / f;  // 湍流 10π/f；正弦 2π/f
 }
+function exportTiming(){
+  const dur=state.exportDuration;
+  const loop=state.exportLoop||false;
+  if(!loop) return {dur, loop, note:''};
+  const P=flowPeriod();
+  if(!(P>0.01)) return {dur, loop, note:''};   // 静态动画：保持用户时长
+  const n=Math.max(1,Math.round(dur/P));
+  const eff=+(n*P).toFixed(2);
+  const note=(Math.abs(eff-dur)>0.1) ? `循环时长按流动周期取整为 ${eff}s` : '';
+  return {dur:eff, loop, note};
+}
+function updateLoopHint(){
+  const el=$('loopHint');
+  if(!el) return;
+  const on=state.exportLoop||false;
+  if(!on){ el.textContent='开启后导出首尾衔接的循环动画'; return; }
+  const P=flowPeriod();
+  if(!(P>0.01)){ el.textContent='开启后导出首尾衔接的循环动画'; return; }
+  const n=Math.max(1,Math.round(state.exportDuration/P));
+  const eff=+(n*P).toFixed(1);
+  el.textContent=`开启后导出首尾衔接的循环动画 · 实际时长约 ${eff}s（按流动周期取整）`;
+}
+/* ============ 导出文件保存 ============ */
+// 新导出流程：先渲染（toast 进度）→ 渲染完成拿到完整 Blob → 再弹保存框写入。
+// 渲染完成后 showSaveFilePicker 可能因"失去用户激活"被浏览器拒绝，
+// 此时自动回退为浏览器下载（<a download>），保证任何情况都能导出。
+// 返回: 'saved' 已写入指定位置; 'downloaded' 浏览器下载; 'cancelled' 用户取消保存
 
-// 在用户手势内请求保存位置。
-// 返回: FileSystemFileHandle 成功; null 浏览器不支持(走传统下载); false 用户取消(中止导出)
-// 注意：这里必须直接 await，不能加"超时兜底"——对话框打开期间用户改名保存的时长不受控制，
-// 一旦超时先返回而用户之后又点了保存，磁盘上会留下用户命名的空占位文件，且 handle 已丢失，
-// 渲染完成后再也写不进去（正是"导出空视频 + 又自动下载一个"bug 的根因）。
+// 请求保存位置。
+// 返回: FileSystemFileHandle 成功; null 浏览器不支持/被拒(走传统下载); false 用户取消(中止导出)
 async function requestSaveHandle(filename){
   if(!window.showSaveFilePicker) return null;
   const ext=(filename.split('.').pop()||'').toLowerCase();
@@ -2392,10 +2827,10 @@ async function requestSaveHandle(filename){
 }
 
 async function triggerDownload(blob, filename){
-  // 1) 优先写入用户预先选择的保存位置
-  if(pendingSaveHandle){
-    const handle=pendingSaveHandle;
-    pendingSaveHandle=null; // 先消费，避免异常/失败后残留
+  // 1) 渲染已完成，此刻请求保存位置（渲染快时浏览器仍允许弹出；被拒/不支持则走下载）
+  const handle=await requestSaveHandle(filename);
+  if(handle===false) return 'cancelled'; // 用户取消保存
+  if(handle){
     try{
       const writable=await handle.createWritable();
       await writable.write(blob);
@@ -2403,8 +2838,7 @@ async function triggerDownload(blob, filename){
       return 'saved'; // 已写入用户指定位置
     }catch(err){
       console.warn('写入指定位置失败, 回退浏览器下载:',err);
-      // 用户选择的文件已由系统创建（空的），写入失败会留下"空视频"——
-      // 尝试删除占位文件，避免用户磁盘上残留一个打不开的命名空文件
+      // 写入失败会留下用户命名的空文件，尝试删除，避免磁盘残留打不开的文件
       try{ await handle.remove(); }catch(_){}
       toast('保存到指定位置失败，已改为浏览器下载');
     }
@@ -2436,6 +2870,7 @@ async function exportPng(){
   off.toBlob(async b=>{
     if(!b){toast('PNG 导出失败');return;}
     const mode=await triggerDownload(b, `gradient-${sz.w}x${sz.h}-${Date.now()}.png`);
+    if(mode==='cancelled'){toast('已取消导出');return;}
     toast(mode==='saved'
       ? `PNG 已保存到指定位置 (${sz.w}×${sz.h})`
       : `PNG 已导出 (${sz.w}×${sz.h}) · 请在浏览器下载栏查看`);
@@ -2476,10 +2911,9 @@ async function exportMp4(){
 /* ==== MP4 导出（推荐路径）：WebCodecs H.264 逐帧编码 + mp4-muxer 封装 ==== */
 async function exportMp4WebCodecs(){
   const sz = SIZE_TABLE[state.exportScale];
-  const dur = state.exportDuration;
-  const loop = state.exportLoop || false;
+  const {dur, loop, note} = exportTiming();
   const fps = 30;
-  const totalFrames = Math.max(1, Math.round(dur * fps));
+  const totalFrames = Math.max(2, Math.round(dur * fps));
   const M = window.Mp4Muxer;
 
   // H.264 level 按分辨率选择：4K→5.1，1080p→4.0
@@ -2522,17 +2956,16 @@ async function exportMp4WebCodecs(){
   const off = makeExportCanvas();
   const oc = off.getContext('2d');
   const loopTag = loop ? ' · 循环' : '';
-  toast(`开始编码 ${dur}s MP4 @${fps}fps · ${sz.label}${loopTag}...`);
+  toast(`开始编码 ${dur}s MP4 @${fps}fps · ${sz.label}${loopTag}${note?`（${note}）`:''}...`);
 
   exporting = true;
+  const baseTime = animTime;   // 固定基准相位，帧间只取相对增量
   let lastToastFrame = -1;
   try{
     for(let i = 0; i < totalFrames; i++){
       if(encError) throw encError;
-      const progress = totalFrames === 1 ? 0 : i / (totalFrames - 1);
-      const t = loop
-        ? animTime + (1 - Math.cos(progress * 2 * Math.PI)) * 0.5 * dur
-        : animTime + progress * dur;
+      // 恒定速度：相位 1:1 前进（循环时长为完整流动周期整数倍 → 末帧相位 ≡ 首帧，无缝循环）
+      const t = baseTime + i * dur / totalFrames;
       drawTo(oc, sz.w, sz.h, t);
       // 进度提示：每 5 帧更新一次，长视频（4K/10s）不再"干等"
       if(i - lastToastFrame >= 5 || i === totalFrames - 1){
@@ -2562,9 +2995,10 @@ async function exportMp4WebCodecs(){
 
     const loopSuffix = loop ? '-loop' : '';
     const saveMode = await triggerDownload(blob, `gradient-${sz.w}x${sz.h}-${dur}s${loopSuffix}-${Date.now()}.mp4`);
+    if(saveMode === 'cancelled'){ toast('已取消导出'); return; }
     toast(saveMode === 'saved'
-      ? `文件已保存到指定位置 (${sz.label}, ${dur}s${loopTag})`
-      : `MP4 已导出 (${sz.label}, ${dur}s, ${fps}fps${loopTag}) · 请在浏览器下载栏查看`);
+      ? `文件已保存到指定位置 (${sz.label}, ${dur}s${loopTag}${note?`，${note}`:''})`
+      : `MP4 已导出 (${sz.label}, ${dur}s, ${fps}fps${loopTag}${note?`，${note}`:''}) · 请在浏览器下载栏查看`);
   } finally {
     try{ encoder.close(); }catch(_){}
     exporting = false;
@@ -2577,13 +3011,10 @@ async function exportViaMediaRecorder(){
   const sz=SIZE_TABLE[state.exportScale];
   const off=makeExportCanvas();
   const oc=off.getContext('2d');
-  const dur=state.exportDuration;
-  const loop=state.exportLoop||false;
+  const {dur, loop, note} = exportTiming();
 
   // ==== 统一 30fps ====
   const fps = 30;
-  const totalFrames = Math.max(1, Math.floor(dur * fps));
-  const frameIntervalMs = 1000 / fps;
 
   // 根据用户选择的格式强制使用对应编码
   const userFmt = state.videoFormat || 'mp4';
@@ -2648,10 +3079,11 @@ async function exportViaMediaRecorder(){
     rec.ondataavailable = e => { if(e.data && e.data.size > 0) chunks.push(e.data); };
 
     const loopTag = loop ? ' · 循环' : '';
-    toast(`开始录制 ${dur}s ${ext.toUpperCase()} @${fps}fps · ${sz.label}${loopTag}...`);
+    toast(`开始录制 ${dur}s ${ext.toUpperCase()} @${fps}fps · ${sz.label}${loopTag}${note?`（${note}）`:''}...`);
 
     // ==== 关键修复 1: 先画第一帧，确保 canvas 有内容 ====
-    drawTo(oc, sz.w, sz.h, animTime);
+    const baseTime = animTime;            // 固定基准相位（首帧与后续录制帧一致）
+    drawTo(oc, sz.w, sz.h, baseTime);
     if(vt.requestFrame) vt.requestFrame();
 
     // ==== 关键修复 2: 给 canvas 一帧时间同步到 stream ====
@@ -2665,62 +3097,41 @@ async function exportViaMediaRecorder(){
     // ==== 关键修复 4: 等待录制器初始化 ====
     await new Promise(r => setTimeout(r, 200));
 
-    // ==== 关键修复 5: 使用 rAF 循环驱动录制，确保每帧都被捕获 ====
-    const progressDenom = Math.max(1, totalFrames - 1);
-    let frameIndex = 0;
-    let lastToastFrame = -1;
-    const startTime = performance.now();
-
+    // ==== 关键修复 5: 恒定速度逐帧录制（真实时基驱动）====
+    // 相位跟随「真实录制时长」1:1 前进，而非按帧数推进：
+    // 即使某帧渲染延迟/丢帧，帧内容仍与其录制时间戳对应 → 播放速度恒定、
+    // 与预览流动速度完全一致（修复 rAF/setTimeout 补帧导致的忽快忽慢）
+    const recStartMs = performance.now(); // 录制时间轴起点（与 rec.start 对齐）
+    let lastToastSec = -1;
     await new Promise((resolve) => {
       const renderFrame = () => {
-        if(frameIndex >= totalFrames){
+        const elapsed = (performance.now() - recStartMs) / 1000;
+        if(elapsed >= dur){
+          // 最后一帧：循环模式回到起点（相位 ≡ 首帧 → 首尾无缝），非循环定格在终点
+          drawTo(oc, sz.w, sz.h, loop ? baseTime : baseTime + dur);
+          if(vt.requestFrame) vt.requestFrame();
           resolve();
           return;
         }
-
-        // 进度提示（每 5 帧更新一次）
-        if(frameIndex - lastToastFrame >= 5 || frameIndex === totalFrames - 1){
-          lastToastFrame = frameIndex;
-          const pct = Math.round(Math.min(frameIndex + 1, totalFrames) / totalFrames * 100);
+        // 进度提示（每秒更新一次）
+        const sec = Math.floor(elapsed);
+        if(sec !== lastToastSec){
+          lastToastSec = sec;
+          const pct = Math.min(99, Math.round(elapsed / dur * 100));
           toast(`正在录制 ${ext.toUpperCase()} ${pct}% · ${sz.label}${loopTag}...`);
         }
-
-        const progress = frameIndex / progressDenom;
-        let t;
-        if(loop){
-          t = animTime + (1 - Math.cos(progress * 2 * Math.PI)) * 0.5 * dur;
-        } else {
-          t = animTime + progress * dur;
-        }
-
-        drawTo(oc, sz.w, sz.h, t);
+        drawTo(oc, sz.w, sz.h, baseTime + elapsed);
         if(vt.requestFrame) vt.requestFrame();
-
-        frameIndex++;
-
-        // 计算下一帧的目标时间
-        const elapsed = performance.now() - startTime;
-        const targetElapsed = frameIndex * frameIntervalMs;
-        const delay = targetElapsed - elapsed;
-
-        if(delay > 0){
-          setTimeout(renderFrame, delay);
-        } else {
-          requestAnimationFrame(renderFrame);
-        }
+        // 对齐到 1/fps 帧边界（无累积漂移）；渲染超时也按真实时间推进相位
+        const next = Math.ceil(elapsed * fps);
+        const waitMs = (next / fps - elapsed) * 1000;
+        setTimeout(renderFrame, Math.max(0, waitMs - 2));
       };
       renderFrame();
     });
 
-    // ==== 关键修复 6: 画最后一帧并等待同步 ====
-    const lastProgress = loop ? 0 : 1;
-    const lastT = loop ? animTime : animTime + dur;
-    drawTo(oc, sz.w, sz.h, lastT);
-    if(vt.requestFrame) vt.requestFrame();
+    // ==== 关键修复 6: 给编码器额外时间完成最后一帧 ====
     await new Promise(r => requestAnimationFrame(r));
-    await new Promise(r => requestAnimationFrame(r));
-
-    // ==== 关键修复 7: 给编码器额外时间完成最后一帧 ====
     await new Promise(r => setTimeout(r, 300));
 
     // ==== 停止录制 ====
@@ -2731,26 +3142,24 @@ async function exportViaMediaRecorder(){
 
     // ==== 检查数据 ====
     if(chunks.length === 0 || chunks.every(c => c.size === 0)){
-      await discardPendingHandle();
       toast('录制失败: 未捕获到视频数据');
       return;
     }
 
     const blob = new Blob(chunks, { type: mimeType.split(';')[0] });
     if(blob.size < 1000){
-      await discardPendingHandle();
       toast('录制失败: 视频数据过小 (' + blob.size + ' bytes)');
       return;
     }
 
     const loopSuffix = loop ? '-loop' : '';
     const saveMode = await triggerDownload(blob, `gradient-${sz.w}x${sz.h}-${dur}s${loopSuffix}-${Date.now()}.${ext}`);
+    if(saveMode==='cancelled'){toast('已取消导出');return;}
     toast(saveMode==='saved'
-      ? `文件已保存到指定位置 (${sz.label}, ${dur}s${loopTag})`
-      : `${ext.toUpperCase()} 已导出 (${sz.label}, ${dur}s, ${fps}fps${loopTag}) · 请在浏览器下载栏查看`);
+      ? `文件已保存到指定位置 (${sz.label}, ${dur}s${loopTag}${note?`，${note}`:''})`
+      : `${ext.toUpperCase()} 已导出 (${sz.label}, ${dur}s, ${fps}fps${loopTag}${note?`，${note}`:''}) · 请在浏览器下载栏查看`);
   } catch(e) {
     exporting = false;
-    await discardPendingHandle();
     toast('导出失败: ' + e.message);
     console.error(e);
   }
