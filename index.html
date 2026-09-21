@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mesh Gradient Studio</title>
+<title>网格渐变色工具</title>
 <style>
   :root{
     --bg:#0c0c0e;
@@ -86,6 +86,7 @@
   }
   .topbar .btn-icon:hover{background:rgba(255,255,255,0.14);border-color:var(--border)}
   .topbar .btn-icon svg{width:15px;height:15px}
+  .topbar .btn-icon img{width:18px;height:18px;pointer-events:none;user-select:none}
   .topbar .btn-icon.has-label{width:auto;padding:0 14px;gap:6px;font-size:12px;font-weight:500}
   .topbar .btn-icon.has-label svg{width:14px;height:14px}
 
@@ -176,16 +177,28 @@
   .loop-hint{font-size:10px;color:var(--text-dimmer);font-weight:400;line-height:1.4}
 
   /* ===== Side panels ===== */
+  /* 稳定性优先：面板叠在持续动画的 Canvas 上，backdrop-filter 会让合成器
+     每帧重采样模糊面板背后的画布（滚动时撕裂/闪烁/掉帧的主要来源）。
+     因此侧面板一律不透明底 + 禁用 backdrop-filter；顶部胶囊条不滚动，保留毛玻璃。 */
   .side-panel{
     position:fixed;
     top:88px;
     width:310px;
     max-height:calc(100vh - 170px);
     overflow-y:auto;
+    /* 滚动链隔离：滚到边界后不再带动 body（macOS 橡皮筋会让整页弹动） */
+    overscroll-behavior:contain;
+    /* 滚动条常驻占位：内容高度变化时不再出现/消失滚动条，避免内容宽度跳变 */
+    scrollbar-gutter:stable;
     padding:20px;
     border-radius:18px;
     z-index:50;
     transition:opacity .3s, transform .3s;
+    contain:layout paint;
+    /* 覆盖 .glass：不透明底色（渐变保留层次感），禁用毛玻璃 */
+    background:linear-gradient(180deg,#1c1c21 0%,#161619 100%);
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
   }
   .side-panel::-webkit-scrollbar{width:5px}
   .side-panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:3px}
@@ -253,66 +266,100 @@
 
   /* ===== Presets ===== */
   .save-current{
-    display:flex;align-items:center;gap:8px;
-    padding:12px 14px;background:rgba(255,255,255,0.06);
-    border:1px dashed var(--border);border-radius:12px;
-    cursor:pointer;color:var(--text);font-size:12px;font-weight:500;
-    transition:.15s;margin-bottom:16px;
+    display:flex;align-items:center;gap:10px;
+    padding:13px 15px;background:rgba(255,255,255,0.04);
+    border:1px dashed rgba(255,255,255,0.22);border-radius:14px;
+    cursor:pointer;color:var(--text);font-size:12.5px;font-weight:500;
+    letter-spacing:.2px;
+    transition:.16s;margin-bottom:18px;
   }
-  .save-current:hover{background:rgba(255,255,255,0.12);border-style:solid;border-color:rgba(255,255,255,0.3)}
-  .save-current svg{width:14px;height:14px}
+  .save-current:hover{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.4)}
+  .save-current:active{transform:scale(.995)}
+  .save-current svg{width:15px;height:15px;flex:0 0 auto;opacity:.92}
 
   .section-title{
-    font-size:10px;text-transform:uppercase;letter-spacing:1px;
-    color:var(--text-dimmer);margin:16px 0 8px;
-    font-weight:700;
+    font-size:11px;letter-spacing:1px;
+    color:var(--text-dimmer);margin:0 0 10px;
+    font-weight:600;
   }
   .section-title:first-child{margin-top:0}
 
-  .preset-list{display:flex;flex-direction:column;gap:10px}
+  .preset-list{display:flex;flex-direction:column;gap:9px}
   .preset-item{
-    position:relative;border-radius:12px;
-    overflow:hidden;cursor:pointer;
-    border:2px solid rgba(255,255,255,0.08);
-    transition:.18s;
-    background:rgba(255,255,255,0.02);
+    position:relative;
+    display:flex;align-items:center;gap:11px;
+    padding:6px;border-radius:14px;
+    cursor:pointer;
+    background:rgba(255,255,255,0.06);
+    border:1px solid rgba(255,255,255,0.05);
+    transition:background .16s,border-color .16s;
+    overflow:hidden;
   }
-  .preset-item:hover{border-color:rgba(255,255,255,0.3);transform:translateY(-1px)}
-  .preset-item.active{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,0.15)}
-  .preset-item .bg{height:48px;position:relative}
-  .preset-item .info{
-    display:flex;align-items:center;justify-content:space-between;
-    padding:8px 10px;background:rgba(0,0,0,0.25);
+  .preset-item:hover{background:rgba(255,255,255,0.11)}
+  .preset-item.active{background:rgba(255,255,255,0.14);border-color:rgba(255,255,255,0.45)}
+  .preset-item .thumb{
+    width:64px;flex:0 0 auto;aspect-ratio:16/9;
+    border-radius:7px;overflow:hidden;
+    background:rgba(0,0,0,0.28);
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,0.09);
   }
+  .preset-item .thumb canvas{display:block;width:100%;height:100%}
   .preset-item .name{
-    font-size:12px;font-weight:600;color:var(--text);
+    font-size:13px;font-weight:500;color:#ececee;letter-spacing:.2px;
     flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   }
   .preset-item .name input{
     width:100%;background:transparent;border:none;color:var(--text);
-    font-size:12px;font-weight:600;font-family:var(--sans);
-    outline:none;border-bottom:1px solid #fff;
+    font-size:13px;font-weight:500;font-family:var(--sans);
+    outline:none;border-bottom:1px solid rgba(255,255,255,0.6);
   }
-  .preset-item .actions{display:flex;gap:2px}
+  .preset-item .actions{display:flex;gap:1px;flex:0 0 auto}
   .preset-item .actions button{
     width:24px;height:24px;border:none;background:transparent;
-    color:var(--text-dim);cursor:pointer;border-radius:6px;
+    color:#9a9aa4;cursor:pointer;border-radius:7px;
     display:inline-flex;align-items:center;justify-content:center;
+    transition:.15s;
   }
-  .preset-item .actions button:hover{background:rgba(255,255,255,0.1);color:var(--text)}
+  .preset-item .actions button:hover{background:rgba(255,255,255,0.13);color:#fff}
   .preset-item .actions button.del:hover{color:var(--danger);background:rgba(255,107,107,0.15)}
-  .preset-item .actions svg{width:12px;height:12px}
+  .preset-item .actions svg{width:13px;height:13px}
+
+  /* 预设分类组（浅色方案 / 深色方案） */
+  .preset-cat{margin-bottom:4px}
+  .preset-cat-head{
+    display:flex;align-items:center;gap:8px;
+    padding:8px 11px;margin-bottom:9px;
+    border-radius:11px;background:rgba(255,255,255,0.045);
+    border:1px solid rgba(255,255,255,0.05);
+    cursor:pointer;user-select:none;
+    transition:background .15s,border-color .15s;
+  }
+  .preset-cat-head:hover{background:rgba(255,255,255,0.09);border-color:rgba(255,255,255,0.12)}
+  .preset-cat-head.empty{opacity:.45}
+  .preset-cat-head .cat-name{
+    flex:1;min-width:0;
+    font-size:11.5px;font-weight:600;letter-spacing:.6px;color:var(--text-dim);
+  }
+  .preset-cat-head .cat-count{
+    flex:0 0 auto;font-size:10px;font-weight:500;color:var(--text-dimmer);
+    font-family:var(--mono);letter-spacing:.4px;
+  }
+  .preset-cat-head .mod-fold{width:20px;height:20px}
+  .preset-cat-body{display:flex;flex-direction:column;gap:9px}
+  .preset-cat-body[hidden]{display:none}
 
   /* ===== Builtin code sync (developer) ===== */
   .sync-details{
-    margin-top:14px;border:1px solid var(--border-soft);
-    border-radius:12px;padding:0 12px;
+    margin-top:16px;border:1px solid rgba(255,255,255,0.07);
+    border-radius:14px;padding:0 15px;
+    background:rgba(255,255,255,0.03);
   }
   .sync-details summary{
-    cursor:pointer;padding:10px 0;list-style:none;user-select:none;
-    font-size:10px;text-transform:uppercase;letter-spacing:1px;
-    font-weight:700;color:var(--text-dimmer);
+    cursor:pointer;padding:13px 0;list-style:none;user-select:none;
+    font-size:12.5px;letter-spacing:.3px;
+    font-weight:500;color:#8a8a94;transition:color .15s;
   }
+  .sync-details summary:hover{color:var(--text-dim)}
   .sync-details summary::-webkit-details-marker{display:none}
   .sync-details[open] summary{border-bottom:1px dashed var(--border-soft)}
   .sync-body{padding:10px 0 12px;display:flex;flex-direction:column;gap:8px}
@@ -327,6 +374,95 @@
   .sync-btn:hover{background:rgba(255,255,255,0.16)}
   .sync-btn.ghost{background:transparent;color:var(--text-dim);border-color:var(--border-soft)}
   .sync-tip{font-size:10px;line-height:1.6;color:var(--text-dimmer)}
+
+  /* ===== 参数模块：统一「标题 + 开关 + 折叠」结构 ===== */
+  .mod-head{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+  .mod-head .group-title{flex:1;min-width:0}
+  .mod-head .switch{flex:0 0 auto}
+  .mod-fold{
+    width:22px;height:22px;flex:0 0 auto;padding:0;border:none;
+    background:transparent;color:var(--text-dim);cursor:pointer;border-radius:7px;
+    display:inline-flex;align-items:center;justify-content:center;transition:.15s;
+  }
+  .mod-fold:hover{background:rgba(255,255,255,0.12);color:var(--text)}
+  .mod-fold svg{width:14px;height:14px;transition:transform .22s}
+  .mod-fold.open svg{transform:rotate(180deg)}
+  .mod-body{display:flex;flex-direction:column;gap:13px}
+  .mod-body[hidden]{display:none}
+  .mod-body .field{margin-bottom:0}
+  .group.is-off > .mod-head .group-title{opacity:.5}
+  .group.is-off > .mod-head .mod-fold{opacity:.6}
+
+  /* ===== 模块锁定（开关右侧 / 折叠左侧）：锁定后不参与随机，且参数只读 ===== */
+  .mod-lock{
+    width:22px;height:22px;flex:0 0 auto;padding:0;border:none;
+    background:transparent;color:var(--text-dimmer);cursor:pointer;border-radius:7px;
+    display:inline-flex;align-items:center;justify-content:center;transition:.15s;
+  }
+  .mod-lock:hover:not(:disabled){background:rgba(255,255,255,0.12);color:var(--text)}
+  .mod-lock svg{width:14px;height:14px}
+  .mod-lock .ic-locked{display:none}
+  /* 锁定态：蓝色高亮 + 闭合锁图标 */
+  .mod-lock.locked{background:rgba(92,168,255,0.16);color:#7fb6ff}
+  .mod-lock.locked:hover{background:rgba(92,168,255,0.28);color:#a3ccff}
+  .mod-lock.locked .ic-locked{display:block}
+  .mod-lock.locked .ic-unlocked{display:none}
+  /* 前提条件未满足（模块开关关闭）：置灰不可点 */
+  .mod-lock:disabled,
+  .mod-lock:disabled:hover{opacity:.26;background:transparent;cursor:not-allowed}
+  /* 锁定后：参数区淡化，除折叠/解锁外全部控件不可操作 */
+  .group.locked > .mod-body{opacity:.5}
+  .group.locked > .mod-head .switch{opacity:.55;pointer-events:none}
+  .group.locked > .mod-body input,
+  .group.locked > .mod-body select,
+  .group.locked > .mod-body textarea,
+  .group.locked > .mod-body button,
+  .group.locked > .mod-body label{cursor:not-allowed;pointer-events:none}
+
+  /* 点颜色 + 透明度 合并行（数值输入，与网格色点一致） */
+  .color-row{
+    display:flex;align-items:center;gap:8px;
+    padding:4px 5px 4px 5px;border-radius:11px;
+    background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.07);
+    transition:border-color .15s;
+  }
+  .color-row:focus-within{border-color:rgba(255,255,255,0.26)}
+  .color-row .sw{
+    width:26px;height:26px;flex:0 0 auto;border-radius:8px;padding:0;
+    border:none;background:transparent;cursor:pointer;position:relative;
+  }
+  .color-row .sw span{
+    position:absolute;inset:0;border-radius:8px;display:block;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,0.22);
+  }
+  .color-row .hx{
+    flex:1;min-width:0;background:transparent;border:none;outline:none;
+    color:var(--text);font-size:11.5px;font-family:var(--mono);
+    text-transform:uppercase;letter-spacing:.4px;
+  }
+  .color-row .opacity-wrap{
+    flex:0 0 auto;display:flex;align-items:center;gap:1px;padding-right:4px;
+  }
+  .color-row .opacity-input{
+    width:32px;background:transparent;border:none;outline:none;
+    color:var(--text);font-size:11.5px;font-family:var(--mono);
+    text-align:right;
+  }
+  .color-row .opacity-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .color-row .opacity-input[type=number]{-moz-appearance:textfield}
+  .color-row .opacity-pct{color:var(--text-dim);font-size:11.5px}
+  .mini-select{
+    width:100%;height:30px;padding:0 27px 0 10px;border-radius:9px;
+    background-color:rgba(255,255,255,0.06);border:1px solid var(--border);
+    color:var(--text);font-size:12px;font-family:var(--sans);font-weight:500;
+    outline:none;cursor:pointer;appearance:none;-webkit-appearance:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a9adbb' stroke-width='2.4' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 9px center;background-size:12px;
+    transition:.15s;
+  }
+  .mini-select:hover{border-color:rgba(255,255,255,0.32)}
+  .mini-select:focus{border-color:rgba(255,255,255,0.42)}
+  .mini-select option{background:#1c1e26;color:#e8eaf0}
 
   .hint{font-size:10px;color:var(--text-dimmer);margin-top:4px;line-height:1.5}
 
@@ -502,6 +638,19 @@
   body.fullscreen .left-panel{transform:translateX(-20px)}
   body.fullscreen .right-panel{transform:translateX(20px)}
   body.fullscreen .code-bar{transform:translateX(-50%) translateY(20px)}
+
+  /* ===== 收起/展开两侧编辑卡片 ===== */
+  /* 面板自身已有 transition:opacity .3s, transform .3s → 位移+淡出动画由这里触发 */
+  body.panels-hidden .left-panel{
+    transform:translateX(calc(-100% - 28px));
+    opacity:0;
+    pointer-events:none;
+  }
+  body.panels-hidden .right-panel{
+    transform:translateX(calc(100% + 28px));
+    opacity:0;
+    pointer-events:none;
+  }
 
   /* ===== Toast ===== */
   .toast{
@@ -739,7 +888,7 @@
 <div class="topbar glass" id="topbar">
   <div class="brand">
     <div class="logo"></div>
-    <h1>Mesh Gradient Studio</h1>
+    <h1>网格渐变色工具</h1>
   </div>
   <div class="toolbar">
     <button class="btn-icon" id="btnReset" title="重置">
@@ -748,6 +897,10 @@
     <button class="btn-icon" id="btnFullscreen" title="全屏">
       <svg class="icon-enter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
       <svg class="icon-exit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+    </button>
+    <button class="btn-icon" id="btnTogglePanels" title="收起/展开编辑卡片 (Shift+Alt+R)">
+      <svg class="icon-collapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10.5 12H7.5"/><path d="M9.5 9.5 7 12l2.5 2.5"/><path d="M13.5 12h3"/><path d="M14.5 9.5 17 12l-2.5 2.5"/></svg>
+      <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3"/><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M7.5 12h3"/><path d="M9 9.5 11.5 12 9 14.5"/><path d="M16.5 12h-3"/><path d="M15 9.5 12.5 12 15 14.5"/></svg>
     </button>
     <button class="btn-icon" id="btnDownloadPng" title="下载 PNG">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>
@@ -759,8 +912,11 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
       导出视频
     </button>
-    <button class="btn-icon" id="btnCopyCode" title="复制代码">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    <button class="btn-icon" id="btnRandom" title="随机生成">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg>
+    </button>
+    <button class="btn-icon" id="btnBrandRandom" title="品牌色随机生成">
+      <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAeCAYAAAA7MK6iAAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAOdEVYdFNvZnR3YXJlAEZpZ21hnrGWYwAABChJREFUeAHlVk2IW1UUPufdTOtgxWRhS8RFQhFrB2lm4VKYrERcOENXXc104UJcTLJQFy7yQkEHLGRmJVqhk40uk72LDLhxl2yGol3kjQ4oiDRYi5K8e0+/e19ekvbNkASadtED4YV7z73fOd/5u0TPmzAtQPw7kguZ2tpQ8OVlXj1Jx6NFiKI1jynNLIXPDuU2PTVgTQeeUKCYyfNo69M7UnlcZSFUW7F0C0s7FE6HYm2h8s3LvJsAFpEaFEqhEcK3Z4SbRlM1s8wBzSG1rqz1Q/oAd6Q1SW5geM0C23vFcPHmW3zwCDA2RA8VNJZDg/9YR4L42WWuTgO83ZX0A48qYQjj7T1iHWAaGOdtfF8PXmes/ijG0G1qKBuAakcNDHBGkH/0XzJGj4Mii1uIawlJhUuFPBtffJUXgUTr1IvPjICXPN5gxfkwRflBn1bhed04j8V5fffByeA/dCXHito2g1UE0FOKq8rQdXw7kRF2HVQLbSSArSwzBxn8zp/jTnZZbcH7qnYMiKXKP7z/KHgDntIZaqU8ytkMVoxMJlrdzrPPSyRgoDBcpxRx+asV7sRnp2b13fviw/PKwNIv0rvyspeJQeUstRDPgosncaAVFa9nOfgaLPSF2i7BcG6AJP38DfYn751ax6+/xD6SogrGCZk+itHSi1TzLL0wXXkcLA1B7R5U17GeVvgHhxOgMwFbWQE44lzEPa79/fiXVJTIlmsQoNcwFa9lx2UHW5pY77BI/ZOLSdChznzy099S6SPetmQGoJ6Zi++fH8duVlHzKP98T7ZR7jvWXjQc0MXX3rsQNYR5ZeZe3f5HNqG8qziuSy6/e4Gbp+nfOpLSt10pnLY/E9WH/0oh1Lbv2g7E1Nem+s4rym/8ITlst5D1+1ez4+723W+yjpxoINuRjFz8OJ8MxVSPfwUoar/lOlGUTA7UbaJTIdtztsa/P9al+AzKJ+26IAYEyqqB/p2bC/i4L5speJRCaTh6De29nRlnqTHUsXXqOpxwrX4sm3b9ozzvo/l07Lo1DEOj4dtmMw34nkj6z/+lhka9j3kagRLVr2S4NKl39TXeB6VVbRwwhdD/5ijqbgOiDfT5wLVckUJqQLXJs6MYozQqoGxLa3coF02YaFr1jexdPKdKdIrUf5ddeL4dDifRwEgAQw5wPof1tXhaYa1841I0k0fAKBNxtemsd4bYROrhouqrL4wH+Glyqyu+ZoxFocmRSrED0cil3heJsWjMnhtjMIXthGFunjlLq7OAWvkQgwEAZQAEegjqvq7VRj+M2l6C6iclNoMRrgKYwwvE0i8F97CAQcAu7rwZtdaFvblu/CLrcLqhh1SbCPQg3l/IK9M99PAwicrMlV11EnRhwPZdjRJKR+83gK4kJ1SKFiF4Vxu8ZFDanZ1LJ4/FZyYPAW//SF4uFnM/AAAAAElFTkSuQmCC" alt="品牌色随机" draggable="false">
     </button>
   </div>
 
@@ -839,65 +995,150 @@
     </button>
   </div>
 
-  <div class="group">
-    <div class="group-head">
+  <div class="group" id="grpFlow">
+    <div class="mod-head">
       <span class="group-title">流动动画</span>
       <label class="switch">
         <input type="checkbox" id="flow" checked>
         <span class="track"></span>
       </label>
+      <button class="mod-lock" type="button" data-lock="flow" aria-label="锁定流动动画（不参与随机）" aria-pressed="false"><svg class="ic-unlocked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="10.6" width="14.8" height="10.2" rx="2.6"/><path d="M8.2 10.6V7.4a3.9 3.9 0 0 1 7.6 0"/></svg><svg class="ic-locked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="10.6" width="14.8" height="10.2" rx="2.6"/><path d="M8.2 10.6V7.4a3.9 3.9 0 0 1 7.8 0v3.2"/></svg></button>
+      <button class="mod-fold" type="button" data-fold="flowBody" aria-label="展开或收起该模块参数"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
     </div>
-    <div class="field">
-      <div class="field-label"><span class="name">流动速度</span><span class="val" id="flowSpeedVal">1.60</span></div>
-      <input type="range" id="flowSpeed" min="0" max="2" step="0.05" value="1.6">
-    </div>
-    <div class="field">
-      <div class="field-label"><span class="name">湍流强度</span><span class="val" id="turbulenceVal">1.25</span></div>
-      <input type="range" id="turbulence" min="0" max="1.5" step="0.05" value="1.25">
-    </div>
-    <div class="field">
-      <div class="field-label"><span class="name">融合度</span><span class="val" id="blendVal">0.66</span></div>
-      <input type="range" id="blend" min="0.2" max="1" step="0.02" value="0.66">
+    <div class="mod-body" id="flowBody" hidden>
+      <div class="field">
+        <div class="field-label"><span class="name">流动速度</span><span class="val" id="flowSpeedVal">1.60</span></div>
+        <input type="range" id="flowSpeed" min="0" max="2" step="0.05" value="1.6">
+      </div>
+      <div class="field">
+        <div class="field-label"><span class="name">湍流强度</span><span class="val" id="turbulenceVal">1.25</span></div>
+        <input type="range" id="turbulence" min="0" max="1.5" step="0.05" value="1.25">
+      </div>
+      <div class="field">
+        <div class="field-label"><span class="name">融合度</span><span class="val" id="blendVal">0.66</span></div>
+        <input type="range" id="blend" min="0.2" max="1" step="0.02" value="0.66">
+      </div>
     </div>
   </div>
 
-  <div class="group">
-    <div class="group-head"><span class="group-title">后期处理</span></div>
-    <div class="field">
-      <div class="field-label"><span class="name">电影胶片噪点</span><span class="val" id="noiseVal">20</span></div>
-      <input type="range" id="noise" min="0" max="100" step="1" value="20">
+  <div class="group" id="grpNoise">
+    <div class="mod-head">
+      <span class="group-title">噪点纹理</span>
+      <label class="switch">
+        <input type="checkbox" id="noiseOn" checked>
+        <span class="track"></span>
+      </label>
+      <button class="mod-lock" type="button" data-lock="noise" aria-label="锁定噪点纹理（不参与随机）" aria-pressed="false"><svg class="ic-unlocked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="10.6" width="14.8" height="10.2" rx="2.6"/><path d="M8.2 10.6V7.4a3.9 3.9 0 0 1 7.6 0"/></svg><svg class="ic-locked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="10.6" width="14.8" height="10.2" rx="2.6"/><path d="M8.2 10.6V7.4a3.9 3.9 0 0 1 7.8 0v3.2"/></svg></button>
+      <button class="mod-fold" type="button" data-fold="noiseBody" aria-label="展开或收起该模块参数"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+    </div>
+    <div class="mod-body" id="noiseBody" hidden>
+      <div class="field">
+        <div class="field-label"><span class="name">噪点大小</span><span class="val" id="noiseVal">20</span></div>
+        <input type="range" id="noise" min="0" max="100" step="1" value="20">
+      </div>
+    </div>
+  </div>
+
+  <div class="group" id="grpPaper">
+    <div class="mod-head">
+      <span class="group-title">纸张纹理</span>
+      <label class="switch">
+        <input type="checkbox" id="paperOn">
+        <span class="track"></span>
+      </label>
+      <button class="mod-lock" type="button" data-lock="paper" aria-label="锁定纸张纹理（不参与随机）" aria-pressed="false"><svg class="ic-unlocked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="10.6" width="14.8" height="10.2" rx="2.6"/><path d="M8.2 10.6V7.4a3.9 3.9 0 0 1 7.6 0"/></svg><svg class="ic-locked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="10.6" width="14.8" height="10.2" rx="2.6"/><path d="M8.2 10.6V7.4a3.9 3.9 0 0 1 7.8 0v3.2"/></svg></button>
+      <button class="mod-fold" type="button" data-fold="paperBody" aria-label="展开或收起该模块参数"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+    </div>
+    <div class="mod-body" id="paperBody" hidden>
+      <div class="field">
+        <div class="field-label"><span class="name">纤维密度</span><span class="val" id="paperFiberVal">50</span></div>
+        <input type="range" id="paperFiber" min="0" max="100" step="1" value="50">
+      </div>
+    </div>
+  </div>
+
+  <div class="group" id="grpDots">
+    <div class="mod-head">
+      <span class="group-title">点阵纹理</span>
+      <label class="switch">
+        <input type="checkbox" id="dotsOn">
+        <span class="track"></span>
+      </label>
+      <button class="mod-lock" type="button" data-lock="dots" aria-label="锁定点阵纹理（不参与随机）" aria-pressed="false"><svg class="ic-unlocked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="10.6" width="14.8" height="10.2" rx="2.6"/><path d="M8.2 10.6V7.4a3.9 3.9 0 0 1 7.6 0"/></svg><svg class="ic-locked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="10.6" width="14.8" height="10.2" rx="2.6"/><path d="M8.2 10.6V7.4a3.9 3.9 0 0 1 7.8 0v3.2"/></svg></button>
+      <button class="mod-fold" type="button" data-fold="dotsBody" aria-label="展开或收起该模块参数"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+    </div>
+    <div class="mod-body" id="dotsBody" hidden>
+      <div class="field">
+        <div class="field-label"><span class="name">点颜色 / 透明度</span></div>
+        <div class="color-row">
+          <button class="sw" id="dotsSwatch" type="button" title="点击选择颜色"><span id="dotsSwatchFill" style="background:#ffffff"></span></button>
+          <input class="hx" id="dotsHex" value="#FFFFFF" maxlength="7" spellcheck="false">
+          <div class="opacity-wrap">
+            <input type="number" class="opacity-input" id="dotsOpacity" min="0" max="100" step="1" value="30">
+            <span class="opacity-pct">%</span>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <div class="field-label"><span class="name">点密度大小</span><span class="val" id="dotsDensityVal">50</span></div>
+        <input type="range" id="dotsDensity" min="0" max="100" step="1" value="50">
+      </div>
+      <div class="field">
+        <div class="field-label"><span class="name">图层混合模式</span></div>
+        <select class="mini-select" id="dotsBlend">
+          <option value="overlay">叠加 Overlay</option>
+          <option value="soft-light">柔光 Soft Light</option>
+          <option value="hard-light">强光 Hard Light</option>
+          <option value="multiply">正片叠底 Multiply</option>
+          <option value="screen">滤色 Screen</option>
+          <option value="lighten">变亮 Lighten</option>
+          <option value="darken">变暗 Darken</option>
+          <option value="color-dodge">颜色减淡 Color Dodge</option>
+          <option value="difference">差值 Difference</option>
+          <option value="luminosity">明度 Luminosity</option>
+          <option value="source-over">正常 Normal</option>
+        </select>
+      </div>
     </div>
   </div>
 
   <div class="group" id="overlayGroup">
-    <div class="group-head"><span class="group-title">在线预览</span></div>
-    <div class="field">
-      <div class="overlay-seg" id="overlaySeg">
-        <button data-mode="none" class="active">无</button>
-        <button data-mode="text">文字</button>
-        <button data-mode="image">界面图片</button>
-      </div>
-    </div>
-    <div id="overlayTextWrap" style="display:none">
-      <textarea class="overlay-textarea" id="overlayText" placeholder="输入预览文字"></textarea>
-    </div>
-    <div id="overlayImageWrap" style="display:none">
-      <label class="overlay-upload">
-        <input type="file" id="overlayImageInput" accept="image/*">
-        <div class="upload-btn" id="overlayUploadBtn">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-          <span id="overlayUploadLabel">上传界面图片</span>
-        </div>
-        <div class="file-name" id="overlayFileName"></div>
+    <div class="mod-head">
+      <span class="group-title">在线预览</span>
+      <label class="switch">
+        <input type="checkbox" id="overlayOn">
+        <span class="track"></span>
       </label>
+      <button class="mod-lock" type="button" data-lock="overlay" aria-label="锁定在线预览（不参与随机）" aria-pressed="false"><svg class="ic-unlocked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="10.6" width="14.8" height="10.2" rx="2.6"/><path d="M8.2 10.6V7.4a3.9 3.9 0 0 1 7.6 0"/></svg><svg class="ic-locked" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><rect x="4.6" y="10.6" width="14.8" height="10.2" rx="2.6"/><path d="M8.2 10.6V7.4a3.9 3.9 0 0 1 7.8 0v3.2"/></svg></button>
+      <button class="mod-fold" type="button" data-fold="overlayBody" aria-label="展开或收起该模块参数"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
     </div>
-    <div class="overlay-actions" id="overlayActions" style="display:none">
-      <button id="overlayToggleVis">隐藏</button>
-      <button class="danger" id="overlayClose">关闭</button>
-    </div>
-    <div class="field overlay-scale-field" id="overlayScaleField" style="display:none;margin-top:10px">
-      <div class="field-label"><span class="name">缩放比例</span><span class="val" id="overlayScaleVal">100%</span></div>
-      <input type="range" id="overlayScale" min="20" max="200" step="5" value="100">
+    <div class="mod-body" id="overlayBody" hidden>
+      <div class="field">
+        <div class="overlay-seg" id="overlaySeg">
+          <button data-mode="text">文字</button>
+          <button data-mode="image">界面图片</button>
+        </div>
+      </div>
+      <div id="overlayTextWrap" style="display:none">
+        <textarea class="overlay-textarea" id="overlayText" placeholder="输入预览文字"></textarea>
+      </div>
+      <div id="overlayImageWrap" style="display:none">
+        <label class="overlay-upload">
+          <input type="file" id="overlayImageInput" accept="image/*">
+          <div class="upload-btn" id="overlayUploadBtn">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            <span id="overlayUploadLabel">上传界面图片</span>
+          </div>
+          <div class="file-name" id="overlayFileName"></div>
+        </label>
+      </div>
+      <div class="overlay-actions" id="overlayActions" style="display:none">
+        <button id="overlayToggleVis">隐藏</button>
+      </div>
+      <div class="field overlay-scale-field" id="overlayScaleField" style="display:none">
+        <div class="field-label"><span class="name">缩放比例</span><span class="val" id="overlayScaleVal">100%</span></div>
+        <input type="range" id="overlayScale" min="20" max="200" step="5" value="100">
+      </div>
     </div>
   </div>
 
@@ -1331,6 +1572,274 @@ function copyUrlToClipboard(){
   });
 }
 
+/* ============ 随机生成（内置隐藏限制条件规则） ============ */
+/*
+ * 隐藏规则（不暴露任何 UI，仅作为内部硬约束，保证随机结果「开箱可用」）
+ *
+ * ── 浅色渐变色随机 ──────────────────────────────
+ *   ① 随机颜色中必须有至少 2 个纯白 #ffffff
+ *   ② 不允许出现明度过低的颜色（暗色）：HSL 明度 ≥ 58% 且相对亮度 ≥ 0.42
+ *   ③ 高饱和度的色彩做减小透明度处理：饱和度 ≥ 70% → 透明度 20%~80% 随机
+ *   ④ 随机颜色数量不超过 7 个
+ *
+ * ── 深色渐变色随机 ──────────────────────────────
+ *   ① 随机颜色中必须有至少 2 个纯黑 #000000
+ *   ② 除纯黑锚点外，其余彩色位只在取色器「最右上角红圈区」内取色：
+ *      HSV 饱和度 ∈ [74%, 100%]、HSV 明度 ∈ [82%, 100%]
+ *      → 紧贴右上角的高纯度 + 高亮色域，杜绝任何暗色 / 灰调 / 偏白倾向
+ *      （红圈矩形按 HSV 取色器口径实测标定，非 HSL）
+ *   ③ 高饱和度的色彩做减小透明度处理：饱和度 ≥ 70% → 透明度 10%~23% 随机（上限 23%）
+ *      （右上角取色必然命中高饱和，故深色彩色位实际恒为 10%~23%）
+ *   ④ 随机颜色数量不超过 7 个
+ */
+const RND_RULES={
+  maxColors:7,
+  minColors:4,
+  white:'#ffffff',
+  black:'#000000',
+  lightMinL:0.58,   // 浅色系 HSL 明度下限（低于此视为暗色，禁用）
+  lightMinRelLum:0.42,
+  // 深色系彩色位取色矩形（对应取色器右上角红圈：x→饱和度，y→明度，均为 HSV 口径）
+  // 实测标定：红圈内域 x∈[349,469] → S∈[0.736,1.0]；y∈[12,62] → V∈[0.818,1.0]
+  darkSatRange:[0.74,1.00],  // 饱和度区间：左边界 0.74 → 右边界 1.00（不得再往左放宽）
+  darkValRange:[0.82,1.00],  // 明度区间：下边界 0.82 → 上边界 1.00（不得再往下放宽）
+  hiSat:0.70,       // 高饱和度阈值
+  hiSatOpacity:{light:[0.20,0.80],dark:[0.10,0.23]}, // 高饱和色透明度区间（深色上限 23%）
+  lowSatOpacity:[0.60,1.00], // 非高饱和色透明度区间
+  anchorMin:2,      // 纯白/纯黑保底个数下限
+  anchorMax:3,      // 纯白/纯黑保底个数上限
+};
+
+function rndNum(a,b){return a+Math.random()*(b-a);}
+function rndInt(a,b){return Math.floor(a+Math.random()*(b-a+1));}
+function rndSnap(a,b,step){return Math.round(rndNum(a,b)/step)*step;}
+function rndShuffle(arr){
+  for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));const t=arr[i];arr[i]=arr[j];arr[j]=t;}
+  return arr;
+}
+function rndHslToRgb(h,s,l){
+  h=((h%360)+360)%360;
+  const c=(1-Math.abs(2*l-1))*s;
+  const x=c*(1-Math.abs((h/60)%2-1));
+  const m=l-c/2;
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x;}
+  else if(h<120){r=x;g=c;}
+  else if(h<180){g=c;b=x;}
+  else if(h<240){g=x;b=c;}
+  else if(h<300){r=x;b=c;}
+  else{r=c;b=x;}
+  return [Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+}
+// HSV → RGB（取色器口径：h 0~360、s/v 0~1），深色系右上角红圈取色用
+function rndHsvToRgb(h,s,v){
+  h=((h%360)+360)%360;
+  const c=v*s;
+  const x=c*(1-Math.abs((h/60)%2-1));
+  const m=v-c;
+  let r=0,g=0,b=0;
+  if(h<60){r=c;g=x;}
+  else if(h<120){r=x;g=c;}
+  else if(h<180){g=c;b=x;}
+  else if(h<240){g=x;b=c;}
+  else if(h<300){r=x;b=c;}
+  else{r=c;b=x;}
+  return [Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+}
+function rndRelLum(rgb){
+  const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);};
+  return 0.2126*f(rgb[0])+0.7152*f(rgb[1])+0.0722*f(rgb[2]);
+}
+function rndHex(rgb){
+  return '#'+rgb.map(v=>clampByte(v).toString(16).padStart(2,'0')).join('');
+}
+// 由一个 RGB 反算真实饱和度（0~1）；用于让「高饱和判定」与最终写出的颜色严格一致
+// HSL 口径：浅色系按 HSL 取色，故用 HSL 饱和度判定
+function rndSatOf(rgb){
+  const r=rgb[0]/255, g=rgb[1]/255, b=rgb[2]/255;
+  const mx=Math.max(r,g,b), mn=Math.min(r,g,b), l=(mx+mn)/2;
+  if(mx===mn)return 0;
+  return l>0.5 ? (mx-mn)/(2-mx-mn) : (mx-mn)/(mx+mn);
+}
+// HSV 口径：深色系按 HSV 右上角红圈取色，必须同口径判定，否则同一区间内的颜色会因明度不同
+// 而算出不同的 HSL 饱和度，被误判成「非高饱和」拿到错误透明度
+function rndHsvSatOf(rgb){
+  const mx=Math.max(rgb[0],rgb[1],rgb[2]);
+  if(mx===0)return 0;
+  return (mx-Math.min(rgb[0],rgb[1],rgb[2]))/mx;
+}
+// 采样一个满足规则②的颜色
+//   深色系：直接在 HSV「右上角红圈」矩形内均匀取色 —— 天然高纯度 + 高亮度，无需拒绝采样
+//   浅色系：保持原「禁暗色」拒绝采样（最多 300 次，兜底纯白）
+function rndConstrainedColor(mode){
+  const R=RND_RULES;
+  if(mode!=='light'){
+    const h=rndNum(0,360);
+    const s=rndNum(R.darkSatRange[0],R.darkSatRange[1]);
+    const v=rndNum(R.darkValRange[0],R.darkValRange[1]);
+    const rgb=rndHsvToRgb(h,s,v);
+    return {hex:rndHex(rgb),sHsl:rndSatOf(rgb),sHsv:rndHsvSatOf(rgb)};
+  }
+  for(let i=0;i<300;i++){
+    const h=rndNum(0,360);
+    const s=rndNum(0.42,0.95);
+    const l=rndNum(R.lightMinL,0.92);
+    const rgb=rndHslToRgb(h,s,l);
+    const lum=rndRelLum(rgb);
+    if(l>=R.lightMinL && lum>=R.lightMinRelLum)return {hex:rndHex(rgb),sHsl:rndSatOf(rgb),sHsv:rndHsvSatOf(rgb)}; // 规则②：禁用暗色
+  }
+  return {hex:R.white,sHsl:0,sHsv:0};
+}
+function makeRandomGradient(forceMode){
+  const R=RND_RULES;
+  const mode=forceMode||(Math.random()<0.5?'light':'dark');
+
+  // 规则④：总数 4~7（不超过 7）
+  const total=rndInt(R.minColors,R.maxColors);
+  // 规则①：纯白/纯黑保底 2~3 个，且至少留 2 个彩色位
+  const anchorCount=rndInt(R.anchorMin,Math.min(R.anchorMax,Math.max(R.anchorMin,total-2)));
+
+  const list=[];
+  for(let i=0;i<anchorCount;i++){
+    list.push({color:mode==='light'?R.white:R.black,opacity:1});
+  }
+  for(let i=0;i<total-anchorCount;i++){
+    const c=rndConstrainedColor(mode);
+    // 规则③：高饱和降透明度（浅色 20%~80%，深色 10%~23%），非高饱和保持较高不透明度
+    // 判定口径必须与取色口径一致：浅色系按 HSL 饱和度，深色系按 HSV 饱和度
+    // 深色系取色恒在右上角高饱和区 → sat 恒 ≥ 0.74，永远命中 hiSat 区间（上限 23%）
+    const sat=mode==='light'?c.sHsl:c.sHsv;
+    const band=R.hiSatOpacity[mode]||R.hiSatOpacity.light;
+    const op=sat>=R.hiSat-0.005
+      ? rndNum(band[0],band[1])
+      : rndNum(R.lowSatOpacity[0],R.lowSatOpacity[1]);
+    list.push({color:c.hex,opacity:+op.toFixed(2)});
+  }
+  rndShuffle(list); // 打散顺序，避免纯白/纯黑扎堆
+
+  // 位置：3×3 抖动网格（随机格位 + 格内偏移 + 轻微自由扰动），保证铺得开又不呆板
+  const cells=[];
+  for(let cx=0;cx<3;cx++)for(let cy=0;cy<3;cy++)cells.push([cx,cy]);
+  rndShuffle(cells);
+  const mesh=list.map((c,i)=>{
+    const cell=cells[i%cells.length];
+    return {
+      x:+clamp((cell[0]+rndNum(0.18,0.82))/3+rndNum(-0.02,0.02),0.06,0.94).toFixed(3),
+      y:+clamp((cell[1]+rndNum(0.18,0.82))/3+rndNum(-0.02,0.02),0.06,0.94).toFixed(3),
+      color:c.color,
+      opacity:c.opacity,
+      visible:true,
+    };
+  });
+
+  return {
+    mode,
+    mesh,
+    flow:Math.random()<0.85,
+    flowSpeed:+rndSnap(0.80,1.90,0.05).toFixed(2),
+    turbulence:+rndSnap(0.70,1.35,0.05).toFixed(2),
+    blend:+rndSnap(0.50,0.86,0.02).toFixed(2),
+    noise:rndInt(10,34),
+  };
+}
+/* ============ 随机纹理参数（与随机按钮联动） ============ */
+// 点阵点颜色固定纯白 #FFFFFF（2026-09-21 用户规则）：混合模式限定在白点可见的提亮/叠加类
+const DOT_RND_LIGHT=['overlay','soft-light','hard-light','screen','lighten','color-dodge'];  // 白色点 → 提亮 / 叠加
+
+function rndPick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function makeRandomTextures(){
+  // 至少启用一种纹理 → 保证每次随机都能看到后期纹理的变化
+  let pe=Math.random()<0.62, de=Math.random()<0.52;
+  if(!pe&&!de){ if(Math.random()<0.5) pe=true; else de=true; }
+  // 点阵点颜色固定纯白 #FFFFFF（2026-09-21 用户规则，所有随机事件均生效）；
+  // 混合模式限定在白点可见的提亮/叠加类，透明度/密度/启用等其余参数照常随机
+  return {
+    paper:{ enabled:pe, fiber:rndInt(10,92) },
+    dots:{ enabled:de, color:'#FFFFFF', opacity:rndInt(12,42), density:rndInt(0,100), blend:rndPick(DOT_RND_LIGHT) },
+  };
+}
+
+/* ============ 品牌色随机生成 ============ */
+// 品牌色板（8 个指定色值，取其色相作为锁定轴；纯度/明度/透明度随机）
+const BRAND_HUES=['#006AFE','#00DCFF','#7961FF','#E6EEFF','#EAE6FF','#FECC6B','#FFF5E3','#FFFFFF'];
+
+// 由品牌色生成一个变体：色相锁定（±0.02 抖动），纯度/明度随机但保持该色的「鲜/淡」属性
+function brandVariantOf(a){
+  const isWhite=a.s<0.02;                     // 纯白无色相：不做色相抖动、保持中性白，避免随机出品牌外的粉/绿色调
+  const h=isWhite?a.h:clamp(a.h+rndNum(-0.02,0.02),0,1);
+  const vivid=a.s>=0.5;                       // 高饱和品牌色（蓝/青/紫/金）保持鲜艳
+  const s=isWhite?rndNum(0,0.08):(vivid?rndNum(0.55,1.00):rndNum(0.06,0.22));   // 淡色系（雾蓝/雾紫/奶油）保持浅淡
+  const v=isWhite?rndNum(0.96,1.00):(vivid?rndNum(0.80,1.00):rndNum(0.92,1.00));
+  const c=hsvToRgb(h,s,v);
+  const hex='#'+[c.r,c.g,c.b].map(x=>clampByte(x).toString(16).padStart(2,'0')).join('').toUpperCase();
+  return { color:hex, opacity:+rndNum(0.45,1).toFixed(2) };
+}
+
+function makeBrandMesh(){
+  const anchors=BRAND_HUES.map(hex=>{ const {h,s,v}=hexToHsv(hex); return {hex,h,s,v}; });
+  const vivid=anchors.filter(a=>a.s>=0.5);    // 006AFE / 00DCFF / 7961FF / FECC6B
+  const pale =anchors.filter(a=>a.s<0.5);     // E6EEFF / EAE6FF / FFF5E3 / FFFFFF
+
+  // 色点数量随机 4~7；至少 1 个鲜色 + 1 个淡色，保证品牌渐变的层次感
+  const total=rndInt(4,7);
+  const list=[brandVariantOf(rndPick(vivid)), brandVariantOf(rndPick(pale))];
+  while(list.length<total) list.push(brandVariantOf(rndPick(anchors)));
+  rndShuffle(list);
+
+  // 位置：与普通随机同一套 3×3 抖动网格，保证铺得开又不呆板
+  const cells=[];
+  for(let cx=0;cx<3;cx++)for(let cy=0;cy<3;cy++)cells.push([cx,cy]);
+  rndShuffle(cells);
+  return list.map((c,i)=>{
+    const cell=cells[i%cells.length];
+    return {
+      x:+clamp((cell[0]+rndNum(0.18,0.82))/3+rndNum(-0.02,0.02),0.06,0.94).toFixed(3),
+      y:+clamp((cell[1]+rndNum(0.18,0.82))/3+rndNum(-0.02,0.02),0.06,0.94).toFixed(3),
+      color:c.color,
+      opacity:c.opacity,
+      visible:true,
+    };
+  });
+}
+
+function randomizeGradient(forceMode,opts){
+  const L=loadLocks();
+  const g=makeRandomGradient(forceMode);
+  const brand=!!(opts&&opts.brand);
+  if(brand)g.mesh=makeBrandMesh();   // 只换色点（品牌色相锁定），其余参数仍走随机
+  const tex=makeRandomTextures();
+  const gr=state.gradient;
+  gr.type='mesh';
+  gr.mesh=g.mesh;                    // 网格色点不受锁定影响，始终参与随机
+  // 已锁定的模块整体跳过随机赋值（锁定仅在该模块开关开启时可用）
+  if(!L.flow){                       // 流动动画：开关 / 速度 / 湍流 / 融合度
+    gr.flow=g.flow;
+    gr.flowSpeed=g.flowSpeed;
+    gr.turbulence=g.turbulence;
+    gr.blend=g.blend;
+  }
+  if(!L.noise){                      // 噪点纹理：开关 / 噪点大小
+    gr.noise=g.noise;
+    gr.noiseOn=Math.random()<0.85;   // 噪点开关同样参与随机
+  }
+  // 后期纹理（纸张 / 点阵）同样参与随机；只改 state.gradient，预设数据不受影响
+  if(!L.paper)gr.paper=tex.paper;
+  if(!L.dots)gr.dots=tex.dots;
+  activePresetId=null;
+  editingMesh=false;
+  updateLoopHint();
+  renderPresets();
+  refreshUI();
+  saveState();
+  // 提示标签按「锁定合并后」的最终状态统计，避免与画面不一致
+  const fPaper=normPaper(gr.paper).enabled, fDots=normDots(gr.dots).enabled;
+  const texTag=(fPaper&&fDots)?' · 纸张+点阵':(fPaper?' · 纸张纤维':(fDots?' · 点阵纹理':''));
+  const lockTag=LOCK_KEYS.filter(k=>L[k]).length?' · 已锁定'+LOCK_KEYS.filter(k=>L[k]).length+'项':'';
+  toast(brand
+    ?'品牌色随机 · '+g.mesh.length+' 色点'+texTag+lockTag
+    :'已随机生成 · '+(g.mode==='light'?'浅色系':'深色系')+' · '+g.mesh.length+' 色点'+texTag+lockTag);
+}
+
 /* ============ 默认状态 ============ */
 const defaultState = () => ({
   gradient:{
@@ -1346,7 +1855,15 @@ const defaultState = () => ({
     turbulence:1.25,
     blend:0.66,
     noise:20,
+    // 噪点纹理开关（老快照无此字段时按 true 处理，行为与旧版一致）
+    noiseOn:true,
+    // 后期纹理（纸张纤维 / 点阵）；默认关闭，老预设无此字段时由 normalize 回落默认值
+    paper:{enabled:false,fiber:50},
+    dots:{enabled:false,color:'#FFFFFF',opacity:30,density:50,blend:'overlay'},
   },
+  // 左侧/右侧面板模块的展开状态与锁定状态（纯 UI 状态，不进预设）
+  // locks：锁定的模块不参与随机生成，且参数只读（前提：该模块开关为开启态）
+  ui:{open:{},presetFold:{light:true,dark:true},locks:{flow:false,noise:false,paper:false,dots:false,overlay:false}},
   exportScale:2,
   exportFormat:'png',
   exportDuration:6,
@@ -1401,8 +1918,8 @@ function rgbToHsv(r,g,b){
   let h=0;
   if(d!==0){
     if(max===r)h=((g-b)/d+(g<b?6:0));
-    else if(max===g)h=(b)/d+2;
-    else h=(r)/d+4;
+    else if(max===g)h=(b-r)/d+2;
+    else h=(r-g)/d+4;
     h/=6;
   }
   const s=max===0?0:d/max;
@@ -1605,8 +2122,14 @@ function genId(){return 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,7
 // 会直接改写这里的内容（仅作者本机，见「代码同步」面板），格式为每行一个 JSON 对象。
 const BUILTIN_PRESETS=[
 /*__BUILTIN_PRESETS_START__*/
-  {"id":"p_1787566741425_d6ib2","name":"淡蓝色渐变","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.22,"y":0.28,"color":"#ffffff","opacity":1,"visible":true},{"x":0.28,"y":0.78,"color":"#0663ff","opacity":0.4,"visible":true},{"x":0.74,"y":0.74,"color":"#ffffff","opacity":1,"visible":true},{"x":0.7,"y":0.22,"color":"#febb57","opacity":0.2,"visible":true}],"flow":true,"flowSpeed":1.6,"turbulence":1.25,"blend":0.66,"noise":20}}},
-  {"id":"p_1787801822469_14fdf","name":"淡蓝色渐变","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.2057074910820452,"y":0.1506849315068493,"color":"#ffffff","opacity":1,"visible":true},{"x":0.10107015457788347,"y":0.9915700737618546,"color":"#0663ff","opacity":0.2,"visible":true},{"x":0.8347205707491082,"y":0.8724973656480506,"color":"#ffffff","opacity":1,"visible":true},{"x":0.7919143876337693,"y":0.007376185458377239,"color":"#57b8fe","opacity":0.3,"visible":true}],"flow":true,"flowSpeed":1.6,"turbulence":1.25,"blend":0.4,"noise":24}}}
+  {"id":"p_1787566741425_d6ib2","name":"淡蓝+淡黄色渐变","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.22,"y":0.28,"color":"#ffffff","opacity":1,"visible":true},{"x":0.28,"y":0.78,"color":"#0663ff","opacity":0.4,"visible":true},{"x":0.74,"y":0.74,"color":"#ffffff","opacity":1,"visible":true},{"x":0.7,"y":0.22,"color":"#febb57","opacity":0.2,"visible":true}],"flow":true,"flowSpeed":1.6,"turbulence":1.25,"blend":0.66,"noise":20}}},
+  {"id":"p_1787801822469_14fdf","name":"淡蓝色渐变","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.2057074910820452,"y":0.1506849315068493,"color":"#ffffff","opacity":1,"visible":true},{"x":0.10107015457788347,"y":0.9915700737618546,"color":"#0663ff","opacity":0.2,"visible":true},{"x":0.8347205707491082,"y":0.8724973656480506,"color":"#ffffff","opacity":1,"visible":true},{"x":0.7919143876337693,"y":0.007376185458377239,"color":"#57b8fe","opacity":0.3,"visible":true}],"flow":true,"flowSpeed":1.6,"turbulence":1.25,"blend":0.4,"noise":24}}},
+  {"id":"p_1788329845285_92aqm","name":"淡蓝+淡黄渐变","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.22,"y":0.28,"color":"#ffffff","opacity":1,"visible":true},{"x":0.28,"y":0.78,"color":"#0663ff","opacity":0.4,"visible":true},{"x":0.74,"y":0.74,"color":"#ffffff","opacity":1,"visible":true},{"x":0.7,"y":0.22,"color":"#febb57","opacity":0.2,"visible":true},{"x":0.5,"y":0.5,"color":"#e0ecff","opacity":1,"visible":true}],"flow":true,"flowSpeed":1.6,"turbulence":1.25,"blend":0.66,"noise":20}}},
+  {"id":"p_1789464421504_l9zj6","name":"浅色方案01","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.554,"y":0.128,"color":"#ffffff","opacity":1,"visible":true},{"x":0.755,"y":0.083,"color":"#ffffff","opacity":1,"visible":true},{"x":0.752,"y":0.595,"color":"#5bc0fa","opacity":0.38,"visible":true},{"x":0.243,"y":0.507,"color":"#f0d6c6","opacity":0.76,"visible":true},{"x":0.106,"y":0.753,"color":"#ffffff","opacity":1,"visible":true}],"flow":false,"flowSpeed":1.25,"turbulence":1.15,"blend":0.64,"noise":28}}},
+  {"id":"p_1789464442048_2l45w","name":"浅色方案02","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.878,"y":0.113,"color":"#ffffff","opacity":1,"visible":true},{"x":0.424,"y":0.188,"color":"#ffffff","opacity":1,"visible":true},{"x":0.416,"y":0.838,"color":"#ffffff","opacity":1,"visible":true},{"x":0.848,"y":0.767,"color":"#ecf9d1","opacity":0.36,"visible":true},{"x":0.158,"y":0.841,"color":"#e1c8fc","opacity":0.41,"visible":true}],"flow":false,"flowSpeed":1.6,"turbulence":1.1,"blend":0.72,"noise":18}}},
+  {"id":"p_1789466160829_22n7t","name":"深色渐变01","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.393,"y":0.826,"color":"#000000","opacity":1,"visible":true},{"x":0.905,"y":0.416,"color":"#121c05","opacity":0.85,"visible":true},{"x":0.104,"y":0.221,"color":"#000000","opacity":1,"visible":true},{"x":0.473,"y":0.264,"color":"#133b7a","opacity":0.72,"visible":true},{"x":0.819,"y":0.892,"color":"#000000","opacity":1,"visible":true}],"flow":true,"flowSpeed":1.35,"turbulence":0.95,"blend":0.62,"noise":18}}},
+  {"id":"p_1789976053977_bqba2","name":"浅色渐变04","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.934,"y":0.114,"color":"#C3D3EB","opacity":0.8,"visible":true},{"x":0.797,"y":0.735,"color":"#FBF8F8","opacity":0.99,"visible":true},{"x":0.749,"y":0.559,"color":"#D7E1F7","opacity":0.55,"visible":true},{"x":0.134,"y":0.203,"color":"#1891FF","opacity":0.53,"visible":true},{"x":0.253,"y":0.731,"color":"#3573FE","opacity":0.83,"visible":true}],"flow":true,"flowSpeed":1.6,"turbulence":0.8,"blend":0.74,"noise":32,"noiseOn":true,"paper":{"enabled":true,"fiber":0},"dots":{"enabled":true,"color":"#FFFFFF","opacity":25,"density":0,"blend":"overlay"}}}},
+  {"id":"p_1789976113869_mv9gl","name":"浅色方案05","builtin":true,"data":{"gradient":{"type":"mesh","mesh":[{"x":0.156,"y":0.844,"color":"#FBE7E7","opacity":0.82,"visible":true},{"x":0.422,"y":0.796,"color":"#0C59D5","opacity":0.75,"visible":true},{"x":0.159,"y":0.181,"color":"#18B2D4","opacity":0.61,"visible":true},{"x":0.849,"y":0.488,"color":"#FEF6DE","opacity":0.52,"visible":true},{"x":0.576,"y":0.499,"color":"#4E83FC","opacity":0.62,"visible":true},{"x":0.506,"y":0.143,"color":"#D5E6FC","opacity":0.9,"visible":true},{"x":0.805,"y":0.107,"color":"#E6EDFB","opacity":0.84,"visible":true}],"flow":true,"flowSpeed":1.5,"turbulence":1.15,"blend":0.74,"noise":32,"noiseOn":true,"paper":{"enabled":true,"fiber":0},"dots":{"enabled":true,"color":"#FFFFFF","opacity":25,"density":0,"blend":"overlay"}}}}
 /*__BUILTIN_PRESETS_END__*/
 ];
 
@@ -1730,9 +2253,25 @@ function init(){
 
   // 恢复 overlay 状态（兼容旧版无 overlay 字段）
   if(!state.overlay)state.overlay={...defaultState().overlay};
-  if(state.overlay.mode==null)state.overlay.mode='none';
+  // 旧版用 mode:'none' 表示「无预览」：迁移为 enabled 总开关 + 记住上次的模式
+  if(state.overlay.mode==null||state.overlay.mode==='none'){
+    if(state.overlay.enabled==null)state.overlay.enabled=false;
+    state.overlay.mode='text';
+  }else if(state.overlay.enabled==null){
+    state.overlay.enabled=true;
+  }
   if(state.overlay.text==null)state.overlay.text='火山引擎云搜索服务';
   if(state.overlay.hidden==null)state.overlay.hidden=false;
+  // 噪点纹理开关兜底（老快照无此字段 → 保持旧版行为：开启）
+  if(state.gradient.noiseOn==null)state.gradient.noiseOn=true;
+  // 面板模块展开状态（纯 UI，不进预设）
+  if(!state.ui||typeof state.ui!=='object')state.ui={open:{}};
+  if(!state.ui.open||typeof state.ui.open!=='object')state.ui.open={};
+  // 预设分类折叠状态兜底（老快照无此字段时默认全部展开）
+  if(!state.ui.presetFold||typeof state.ui.presetFold!=='object')state.ui.presetFold={light:true,dark:true};
+  // 模块锁定状态兜底（老快照无此字段 → 全部未锁定）
+  if(!state.ui.locks||typeof state.ui.locks!=='object')state.ui.locks={};
+  LOCK_KEYS.forEach(k=>{ state.ui.locks[k]=!!state.ui.locks[k]; });
   // 旧版单一 scale 字段迁移：拆分为文字/图片两个独立参数
   const legacyScale=(typeof state.overlay.scale==='number')?state.overlay.scale:null;
   if(state.overlay.textScale==null)state.overlay.textScale=legacyScale!=null?legacyScale:1;
@@ -1747,6 +2286,7 @@ function init(){
 
   renderPresets();
   refreshUI();
+  applyFoldUI(); // 恢复各模块的展开 / 收起状态
   bindEvents();
   fsRestore(); // 恢复上次连接的代码文件句柄（代码同步·开发者）
   requestAnimationFrame(loop);
@@ -1821,8 +2361,19 @@ function drawTo(c,w,h,t){
     c.fillStyle=rg;c.fillRect(0,0,w,h);
   });
 
-  if(g.noise>0){
+  if(g.noiseOn!==false && g.noise>0){
     drawStaticNoise(c,w,h,g.noise);
+  }
+
+  // 纸张纤维纹理（叠在噪点之上、点阵之下）
+  const paperCfg=normPaper(g.paper);
+  if(paperCfg.enabled){
+    drawPaperTexture(c,w,h,paperCfg.fiber);
+  }
+  // 点阵纹理（最上层，可用混合模式融入背景）
+  const dotsCfg=normDots(g.dots);
+  if(dotsCfg.enabled){
+    drawDotTexture(c,w,h,dotsCfg);
   }
 
   // 在线预览叠加层
@@ -1841,7 +2392,8 @@ function preloadOverlayImage(){
 }
 function drawOverlay(c,w,h){
   const ov=state.overlay;
-  if(!ov||ov.mode==='none'||ov.hidden)return;
+  // enabled 为总开关（旧版用 mode:'none' 表示关闭，init 里已迁移）
+  if(!ov||!ov.enabled||ov.mode==='none'||ov.hidden)return;
   if(ov.mode==='text'){
     const scale=Math.max(0.2,Math.min(2,ov.textScale||1));
     const text=ov.text||'';
@@ -1909,6 +2461,160 @@ function invalidateNoise(){
   noiseCanvasSize=0;
 }
 
+/* ============ 后期纹理：纸张纤维 / 点阵 ============ */
+// 纹理与画布尺寸解耦：按画布宽高比生成、宽度上限 TEX_MAX_W，
+// 生成时用 ctx.scale(tw/w) 把「以画布宽 w 为基准」的几何量映射进纹理像素，
+// 再拉伸回 w —— 因此预览 / 1080p / 4K 导出的纤维与点阵视觉比例完全一致。
+const TEX_MAX_W=3072;
+
+const DOT_BLENDS=['overlay','soft-light','hard-light','multiply','screen','lighten','darken','color-dodge','difference','luminosity','source-over'];
+
+function normPaper(p){
+  const o=(p&&typeof p==='object')?p:{};
+  return {
+    enabled:!!o.enabled,
+    fiber:clamp(typeof o.fiber==='number'&&isFinite(o.fiber)?o.fiber:50,0,100),
+  };
+}
+
+function normDots(d){
+  const o=(d&&typeof d==='object')?d:{};
+  return {
+    enabled:!!o.enabled,
+    color:/^#[0-9a-fA-F]{6}$/.test(o.color||'')?o.color.toUpperCase():'#FFFFFF',
+    opacity:clamp(typeof o.opacity==='number'&&isFinite(o.opacity)?o.opacity:30,0,100),
+    density:clamp(typeof o.density==='number'&&isFinite(o.density)?o.density:50,0,100),
+    blend:DOT_BLENDS.indexOf(o.blend)>=0?o.blend:'overlay',
+  };
+}
+
+function texSize(w,h){
+  const tw=Math.max(8,Math.min(w,TEX_MAX_W));
+  const th=Math.max(8,Math.round(tw*h/Math.max(1,w)));
+  return {tw,th,s:tw/Math.max(1,w)};
+}
+
+// 纸张纤维纹理：中性灰底 + 随机乱向纤维，用 overlay 叠加。
+// 灰底在 overlay 混合下等效于不改变原图，只留下纤维的提亮 / 压暗 → 纯纤维质感，不整体改色。
+let paperTex=null,paperKey='';
+function buildPaperTexture(w,h,fiber){
+  const {tw,th,s}=texSize(w,h);
+  const cv=document.createElement('canvas');
+  cv.width=tw;cv.height=th;
+  const c=cv.getContext('2d');
+  c.scale(s,s);                       // 之后一律用「画布宽 w 为基准」的坐标
+
+  c.fillStyle='#808080';
+  c.fillRect(0,0,w,h);
+
+  const f=clamp(fiber,0,100)/100;
+  // 单滑块同时控制「密度」与「大小」：左端密集 + 短细纤维（纹理越「小且密」），
+  // 右端稀疏 + 长粗纤维（纹理越「大且疏」）。条数常数与分辨率无关，长/宽按 w 等比放大。
+  const count=Math.round(3000-2720*f);             // 数量：3000 根 → 280 根（f=0 密、f=100 疏）
+  const lenBase=w*(0.008+0.072*f);                  // 长度：12.8px → 128px（@1600w，10x）
+  const lwBase=(0.4+2.0*f)*(w/1600);                // 线宽：0.4px → 2.4px（6x）
+  const minLw=1/s;                                  // 纹理内至少 1 像素，避免亚像素被抗锯齿冲淡
+  const aBase=0.08+0.18*f;                          // 半透明基准（让 f=0 几乎不见，f=100 清晰）
+
+  c.lineCap='round';
+  for(let i=0;i<count;i++){
+    const len=lenBase*(0.35+Math.random()*1.7);
+    const x=Math.random()*w, y=Math.random()*h;
+    const ang=Math.random()*Math.PI*2;
+    const bend=(Math.random()-0.5)*len*0.45;
+    const ex=x+Math.cos(ang)*len, ey=y+Math.sin(ang)*len;
+    const mx=(x+ex)/2-Math.sin(ang)*bend, my=(y+ey)/2+Math.cos(ang)*bend;
+    const a=(aBase*(0.6+Math.random()*1.0)).toFixed(3);
+    c.strokeStyle=Math.random()<0.54?('rgba(255,255,255,'+a+')'):('rgba(0,0,0,'+a+')');
+    c.lineWidth=Math.max(minLw,lwBase*(0.55+Math.random()*1.0));
+    c.beginPath();
+    c.moveTo(x,y);
+    c.quadraticCurveTo(mx,my,ex,ey);
+    c.stroke();
+  }
+
+  // 纸浆结节：少量极淡短点，避免大面积空洞，让纸面更实
+  const knots=Math.round(count*0.10);
+  for(let i=0;i<knots;i++){
+    const a=(aBase*(0.35+Math.random()*0.55)).toFixed(3);
+    c.fillStyle=Math.random()<0.5?('rgba(255,255,255,'+a+')'):('rgba(0,0,0,'+a+')');
+    c.beginPath();
+    c.arc(Math.random()*w,Math.random()*h,Math.max(minLw*0.6,lwBase*(0.6+Math.random()*1.2)),0,Math.PI*2);
+    c.fill();
+  }
+  return cv;
+}
+
+function getPaperTexture(w,h,fiber){
+  const key=w+'|'+h+'|'+fiber;
+  if(paperTex&&paperKey===key)return paperTex;
+  paperTex=buildPaperTexture(w,h,fiber);
+  paperKey=key;
+  return paperTex;
+}
+
+function drawPaperTexture(c,w,h,fiber){
+  const t=getPaperTexture(w,h,fiber);
+  c.save();
+  c.globalCompositeOperation='overlay';
+  c.drawImage(t,0,0,w,h);
+  c.restore();
+}
+
+// 点阵纹理：交错网格 + 轻微抖动；密度滑块同时控制「间距（密度）」与「点半径（大小）」
+let dotsTex=null,dotsKey='';
+function buildDotTexture(w,h,density,color){
+  const {tw,th,s}=texSize(w,h);
+  const cv=document.createElement('canvas');
+  cv.width=tw;cv.height=th;
+  const c=cv.getContext('2d');
+  c.scale(s,s);
+
+  const d=clamp(density,0,100)/100;
+  // 单滑块同时控制「密度（间距）」与「大小（半径）」：左端密集 + 极小点（纹理越「小且密」），
+  // 右端稀疏 + 明显更大的点（纹理越「大且疏」）。
+  const gap=w*(0.018+0.052*d);        // 间距：28.8px → 112px（@1600w，d=0 更密，d=100 仍明显变疏）
+  const rad=w*(0.0010+0.0040*d);      // 半径：1.6px → 8.0px（5x 大小）
+  const jit=gap*0.13;                 // 位置抖动，避免死板
+  const cols=Math.ceil(w/gap)+2;
+  const rows=Math.ceil(h/gap)+2;
+
+  c.fillStyle=color||'#FFFFFF';
+  for(let j=0;j<rows;j++){
+    const off=(j%2)?gap*0.5:0;        // 交错半格
+    for(let i=0;i<cols;i++){
+      const x=i*gap+off-gap*0.5+(Math.random()-0.5)*jit;
+      const y=j*gap+(Math.random()-0.5)*jit;
+      c.beginPath();
+      c.arc(x,y,rad*(0.9+Math.random()*0.2),0,Math.PI*2);
+      c.fill();
+    }
+  }
+  return cv;
+}
+
+function getDotTexture(w,h,dt){
+  const key=w+'|'+h+'|'+dt.density+'|'+dt.color;
+  if(dotsTex&&dotsKey===key)return dotsTex;
+  dotsTex=buildDotTexture(w,h,dt.density,dt.color);
+  dotsKey=key;
+  return dotsTex;
+}
+
+function drawDotTexture(c,w,h,dt){
+  const t=getDotTexture(w,h,dt);
+  c.save();
+  c.globalCompositeOperation=dt.blend;   // 图层混合模式，便于融入背景
+  c.globalAlpha=dt.opacity/100;
+  c.drawImage(t,0,0,w,h);
+  c.restore();
+}
+
+function invalidateTextures(){
+  paperTex=null;paperKey='';
+  dotsTex=null;dotsKey='';
+}
+
 function loop(ts){
   const dt=(ts-lastTs)/1000; lastTs=ts;
   if(state.gradient.flow){animTime+=dt;}
@@ -1938,13 +2644,68 @@ function drawEditHandles(c,w,h){
 }
 
 /* ============ 预设渲染 ============ */
+/* 预设明暗归类：按该预设真实渲染一帧 32×18 小图（复用主缩略图算法，含混合/透明度），
+   取平均感知亮度判断 —— 阈值 0.45：深色渐变（藏青/黑底）约 0.05~0.2，浅色约 0.7+ */
+function presetIsDark(p){
+  try{
+    const cv=document.createElement('canvas');
+    cv.width=32; cv.height=18;
+    paintPresetThumb(cv, p.data);
+    const d=cv.getContext('2d').getImageData(0,0,32,18).data;
+    let sum=0;
+    for(let i=0;i<d.length;i+=4){
+      sum+=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+    }
+    const avg=sum/(d.length/4)/255;   // 0(纯黑) ~ 1(纯白)
+    return avg<0.45;
+  }catch(e){ return false; }
+}
+
 function renderPresets(){
   const wrap=$('presetList'); wrap.innerHTML='';
-  const builtin=presets.filter(p=>p.builtin);
-  const custom=presets.filter(p=>!p.builtin);
+  const fold=(state.ui&&state.ui.presetFold)||{light:true,dark:true};
 
-  builtin.forEach(p=>wrap.appendChild(createPresetItem(p,true)));
-  custom.forEach(p=>wrap.appendChild(createPresetItem(p,false)));
+  const light=presets.filter(p=>!presetIsDark(p));
+  const dark=presets.filter(p=>presetIsDark(p));
+
+  const mkCat=(key,label,list)=>{
+    const cat=document.createElement('div');
+    cat.className='preset-cat';
+
+    const head=document.createElement('div');
+    head.className='preset-cat-head'+(list.length?'':' empty');
+    head.innerHTML=
+      '<span class="cat-name">'+label+'</span>'+
+      '<span class="cat-count">'+list.length+'</span>'+
+      '<button class="mod-fold" type="button" aria-label="收起/展开该分类">'+
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>'+
+      '</button>';
+
+    const body=document.createElement('div');
+    body.className='preset-cat-body';
+    list.forEach(p=>body.appendChild(createPresetItem(p,!!p.builtin)));
+
+    const isOpen=!!fold[key];
+    body.hidden=!isOpen;
+    head.querySelector('.mod-fold').classList.toggle('open',isOpen);
+
+    head.addEventListener('click',()=>{
+      if(!state.ui)state.ui={};
+      if(!state.ui.presetFold||typeof state.ui.presetFold!=='object')state.ui.presetFold={light:true,dark:true};
+      state.ui.presetFold[key]=!state.ui.presetFold[key];
+      const nowOpen=state.ui.presetFold[key];
+      body.hidden=!nowOpen;
+      head.querySelector('.mod-fold').classList.toggle('open',nowOpen);
+      saveState();
+    });
+
+    cat.appendChild(head);
+    cat.appendChild(body);
+    return cat;
+  };
+
+  wrap.appendChild(mkCat('light','浅色方案',light));
+  wrap.appendChild(mkCat('dark','深色方案',dark));
 
   if(presets.length===0){
     const empty=document.createElement('div');
@@ -1964,38 +2725,60 @@ function renderPresets(){
   }
 }
 
+/* 预设缩略图：按该预设的参数渲染一帧网格渐变（与主画布同一套径向叠加算法） */
+function paintPresetThumb(cv, data){
+  if(!cv) return;
+  const c=cv.getContext('2d');
+  const w=cv.width, h=cv.height;
+  const g=(data&&data.gradient)||{};
+  const mesh=Array.isArray(g.mesh)?g.mesh:[];
+  const blend=(g.blend==null?0.66:g.blend);
+
+  c.clearRect(0,0,w,h);
+  const firstVisible=mesh.find(p=>p.visible!==false);
+  c.fillStyle=firstVisible?firstVisible.color:(mesh[0]?mesh[0].color:'#3a3a44');
+  c.fillRect(0,0,w,h);
+
+  mesh.forEach(p=>{
+    if(p.visible===false)return;
+    const cx=(p.x==null?0.5:p.x)*w;
+    const cy=(p.y==null?0.5:p.y)*h;
+    const rad=Math.max(1,Math.hypot(w,h)*blend);
+    const op=p.opacity!=null?p.opacity:1;
+    const rg=c.createRadialGradient(cx,cy,0,cx,cy,rad);
+    rg.addColorStop(0,rgba(p.color,0.95*op));
+    rg.addColorStop(0.5,rgba(p.color,0.5*op));
+    rg.addColorStop(1,rgba(p.color,0));
+    c.fillStyle=rg;
+    c.fillRect(0,0,w,h);
+  });
+}
+
 function createPresetItem(p, isBuiltin){
   const el=document.createElement('div');
   el.className='preset-item'+(isBuiltin?' builtin':'')+(activePresetId===p.id?' active':'');
 
   const data=p.data;
-  let bg='';
-  if(data.gradient.mesh?.length){
-    const colors=data.gradient.mesh;
-    bg=colors.slice(0,4).map((c,i)=>`${c.color} ${i*25}%`).join(', ');
-    bg=`linear-gradient(135deg, ${bg})`;
-  } else {
-    bg='#333';
-  }
 
   el.innerHTML=`
-    <div class="bg" style="background:${bg}"></div>
-    <div class="info">
-      <div class="name">${p.name}</div>
-      <div class="actions">
-        ${(!p.builtin&&(fsConnected()||manualSyncWanted))?`
-        <button class="sync-up" title="写入代码（成为内置预设，部署后所有人可见）">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4"/><path d="M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
-        </button>`:''}
-        <button class="rename-btn" title="重命名">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-        </button>
-        <button class="del" title="删除">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
-        </button>
-      </div>
+    <div class="thumb"><canvas width="128" height="72"></canvas></div>
+    <div class="name">${p.name}</div>
+    <div class="actions">
+      ${(!p.builtin&&(fsConnected()||manualSyncWanted))?`
+      <button class="sync-up" title="写入代码（成为内置预设，部署后所有人可见）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4"/><path d="M6 10l6-6 6 6"/><path d="M4 20h16"/></svg>
+      </button>`:''}
+      <button class="rename-btn" title="重命名">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+      </button>
+      <button class="del" title="删除">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>
+      </button>
     </div>
   `;
+
+  // 左预览窗：按预设参数渲染一帧渐变示意（16:9）
+  paintPresetThumb(el.querySelector('.thumb canvas'), data);
 
   el.addEventListener('click',(e)=>{
     if(e.target.closest('.rename-btn')||e.target.closest('.del')||e.target.closest('.sync-up'))return;
@@ -2120,6 +2903,19 @@ function refreshUI(){
   $('turbulence').value=g.turbulence; $('turbulenceVal').textContent=g.turbulence.toFixed(2);
   $('blend').value=g.blend; $('blendVal').textContent=g.blend.toFixed(2);
   $('noise').value=g.noise||0; $('noiseVal').textContent=g.noise||0;
+  $('noiseOn').checked=g.noiseOn!==false;
+
+  // 后期纹理控件同步（老预设无 paper/dots 字段时 normXxx 回落默认值）
+  const pa=normPaper(g.paper), dt=normDots(g.dots);
+  $('paperOn').checked=pa.enabled;
+  $('paperFiber').value=pa.fiber; $('paperFiberVal').textContent=Math.round(pa.fiber);
+  $('dotsOn').checked=dt.enabled;
+  $('dotsSwatchFill').style.background=dt.color;
+  $('dotsHex').value=dt.color;
+  $('dotsOpacity').value=Math.round(dt.opacity);
+  $('dotsDensity').value=dt.density; $('dotsDensityVal').textContent=Math.round(dt.density);
+  $('dotsBlend').value=dt.blend;
+  applyModuleOffState();
 
   const editBtn=$('toggleEdit');
   if(editBtn){
@@ -2139,20 +2935,113 @@ function refreshUI(){
   syncOverlayUI();
 }
 
+/* ===== 面板模块：开关态视觉 + 展开/收起 + 锁定 ===== */
+// [模块容器 id, 模块开关 id, 锁定键]
+const MODULE_MAP=[
+  ['grpFlow','flow','flow'],
+  ['grpNoise','noiseOn','noise'],
+  ['grpPaper','paperOn','paper'],
+  ['grpDots','dotsOn','dots'],
+  ['overlayGroup','overlayOn','overlay'],
+];
+// 可锁定的模块键（锁定 = 不参与随机 + 参数只读）
+const LOCK_KEYS=MODULE_MAP.map(m=>m[2]);
+// 读取锁定状态（带兜底）
+function loadLocks(){
+  const l=(state.ui&&state.ui.locks)||{};
+  const out={};
+  LOCK_KEYS.forEach(k=>{ out[k]=!!l[k]; });
+  return out;
+}
+// 模块开关关闭 → 标题淡化（内容仍可展开调整，只是效果不生效）
+function applyModuleOffState(){
+  MODULE_MAP.forEach(([gid,cid])=>{
+    const grp=$(gid), box=$(cid);
+    if(grp&&box)grp.classList.toggle('is-off',!box.checked);
+  });
+  applyModuleLockUI();
+}
+/* 锁定态统一同步：
+   ① 锁定前提是该模块开关为开启态 —— 开关关闭时锁定按钮置灰不可点，并强制解锁；
+   ② 锁定后模块内除「折叠 / 解锁」外的全部控件禁用（只读）。 */
+function applyModuleLockUI(){
+  if(!state.ui)state.ui={open:{},presetFold:{},locks:{}};
+  if(!state.ui.locks||typeof state.ui.locks!=='object')state.ui.locks={};
+  MODULE_MAP.forEach(([gid,cid,key])=>{
+    const grp=$(gid), box=$(cid);
+    if(!grp||!box)return;
+    if(!box.checked)state.ui.locks[key]=false;            // 前提条件不满足 → 强制解锁
+    const locked=!!state.ui.locks[key];
+    grp.classList.toggle('locked',locked);
+    const btn=grp.querySelector('.mod-lock');
+    if(btn){
+      btn.classList.toggle('locked',locked);
+      btn.disabled=!box.checked;                          // 开关关闭 → 置灰不可操作
+      btn.setAttribute('aria-pressed',locked?'true':'false');
+      btn.title=!box.checked
+        ? '开启该功能后才能锁定'
+        : (locked?'已锁定：不参与随机，参数只读（点击解锁）':'锁定：该模块不参与随机');
+    }
+  });
+  // 参数控件禁用（折叠 / 解锁按钮始终可用）
+  document.querySelectorAll('.group').forEach(grp=>{
+    const locked=grp.classList.contains('locked');
+    grp.querySelectorAll('input,select,textarea,button,label.overlay-upload').forEach(el=>{
+      if(el.classList.contains('mod-fold')||el.classList.contains('mod-lock'))return;
+      el.disabled=locked;
+    });
+  });
+}
+// 该模块的锁定开关被点击
+function toggleModuleLock(key){
+  const box=document.getElementById((MODULE_MAP.find(m=>m[2]===key)||[])[1]||'');
+  if(!state.ui)state.ui={open:{},presetFold:{},locks:{}};
+  if(!state.ui.locks)state.ui.locks={};
+  if(box&&!box.checked){ state.ui.locks[key]=false; applyModuleLockUI(); return; }  // 前提不满足
+  state.ui.locks[key]=!state.ui.locks[key];
+  applyModuleLockUI();
+  saveState();
+  const names={flow:'流动动画',noise:'噪点纹理',paper:'纸张纹理',dots:'点阵纹理',overlay:'在线预览'};
+  toast((names[key]||'该模块')+(state.ui.locks[key]?' 已锁定 · 不再参与随机':' 已解锁 · 重新参与随机'));
+}
+// 展开/收起状态写到 DOM（默认收起；状态记在 state.ui.open，不进预设）
+function applyFoldUI(){
+  const open=(state.ui&&state.ui.open)||{};
+  document.querySelectorAll('.mod-fold').forEach(btn=>{
+    const key=btn.dataset.fold;
+    const body=$(key);
+    if(!body)return;
+    const isOpen=!!open[key];
+    body.hidden=!isOpen;
+    btn.classList.toggle('open',isOpen);
+    btn.setAttribute('aria-expanded',isOpen?'true':'false');
+  });
+}
+function toggleFold(key){
+  if(!state.ui)state.ui={open:{}};
+  if(!state.ui.open)state.ui.open={};
+  state.ui.open[key]=!state.ui.open[key];
+  applyFoldUI();
+  saveState();
+}
+
 function syncOverlayUI(){
   const ov=state.overlay||defaultState().overlay;
   const seg=$('overlaySeg');
   if(seg){
     [...seg.children].forEach(b=>{
-      b.classList.toggle('active',b.dataset.mode===ov.mode);
+      b.classList.toggle('active',!!ov.enabled&&b.dataset.mode===ov.mode);
     });
   }
+  const on=$('overlayOn');
+  if(on)on.checked=!!ov.enabled;
   const textWrap=$('overlayTextWrap');
   const imageWrap=$('overlayImageWrap');
   const actions=$('overlayActions');
   if(textWrap)textWrap.style.display=ov.mode==='text'?'block':'none';
   if(imageWrap)imageWrap.style.display=ov.mode==='image'?'block':'none';
-  if(actions)actions.style.display=ov.mode!=='none'?'flex':'none';
+  // 隐藏 / 缩放属于「预览生效时」的操作，随总开关显示
+  if(actions)actions.style.display=ov.enabled?'flex':'none';
 
   const textArea=$('overlayText');
   if(textArea)textArea.value=ov.text||'';
@@ -2170,9 +3059,10 @@ function syncOverlayUI(){
   const scaleVal=$('overlayScaleVal');
   // 滑块展示的是当前激活模式自己的缩放参数（文字/图片独立）
   const curScale=ov.mode==='image'?(ov.imageScale||1):(ov.textScale||1);
-  if(scaleField)scaleField.style.display=ov.mode!=='none'?'block':'none';
+  if(scaleField)scaleField.style.display=ov.enabled?'block':'none';
   if(scaleInput)scaleInput.value=Math.round(curScale*100);
   if(scaleVal)scaleVal.textContent=Math.round(curScale*100)+'%';
+  applyModuleOffState();
 }
 
 /* ============ Export dropdown UI sync ============ */
@@ -2258,6 +3148,23 @@ function toggleFullscreen(force){
     exitIcon.style.display=isFs?'':'none';
   }
   toast(isFs?'已进入全屏模式':'已退出全屏模式');
+}
+
+/* ============ 收起/展开两侧编辑卡片 ============ */
+function toggleSidePanels(force){
+  let hide;
+  if(force===undefined){
+    hide=!document.body.classList.contains('panels-hidden');
+  } else {
+    hide=force;
+  }
+  document.body.classList.toggle('panels-hidden',hide);
+  const cIcon=document.querySelector('#btnTogglePanels .icon-collapse');
+  const eIcon=document.querySelector('#btnTogglePanels .icon-expand');
+  if(cIcon&&eIcon){
+    cIcon.style.display=hide?'none':'';
+    eIcon.style.display=hide?'':'none';
+  }
 }
 
 function setSeg(id,val){
@@ -2423,6 +3330,84 @@ function bindEvents(){
   $('turbulence').addEventListener('input',e=>{state.gradient.turbulence=+e.target.value;$('turbulenceVal').textContent=(+e.target.value).toFixed(2);updateLoopHint();updateCode();saveState();});
   $('blend').addEventListener('input',e=>{state.gradient.blend=+e.target.value;$('blendVal').textContent=(+e.target.value).toFixed(2);updateCode();saveState();});
   $('noise').addEventListener('input',e=>{state.gradient.noise=+e.target.value;$('noiseVal').textContent=+e.target.value;updateCode();saveState();});
+  $('noiseOn').addEventListener('change',e=>{
+    state.gradient.noiseOn=e.target.checked;
+    applyModuleOffState();
+    updateCode();saveState();
+  });
+
+  /* ----- 模块展开 / 收起 ----- */
+  document.querySelectorAll('.mod-fold').forEach(btn=>{
+    btn.addEventListener('click',()=>toggleFold(btn.dataset.fold));
+  });
+
+  /* ----- 模块锁定 / 解锁（不参与随机） ----- */
+  document.querySelectorAll('.mod-lock').forEach(btn=>{
+    btn.addEventListener('click',()=>toggleModuleLock(btn.dataset.lock));
+  });
+
+  /* ----- 后期纹理：纸张纤维 ----- */
+  $('paperOn').addEventListener('change',e=>{
+    state.gradient.paper={...normPaper(state.gradient.paper),enabled:e.target.checked};
+    applyModuleOffState();
+    updateCode();saveState();
+  });
+  $('paperFiber').addEventListener('input',e=>{
+    state.gradient.paper={...normPaper(state.gradient.paper),fiber:+e.target.value};
+    $('paperFiberVal').textContent=+e.target.value;
+    updateCode();saveState();
+  });
+
+  /* ----- 后期纹理：点阵 ----- */
+  function setDotsColor(hex){
+    hex=(hex||'').toUpperCase();
+    if(!/^#[0-9A-F]{6}$/.test(hex))return false;
+    state.gradient.dots={...normDots(state.gradient.dots),color:hex};
+    $('dotsSwatchFill').style.background=hex;
+    $('dotsHex').value=hex;
+    updateCode();saveState();
+    return true;
+  }
+  $('dotsOn').addEventListener('change',e=>{
+    state.gradient.dots={...normDots(state.gradient.dots),enabled:e.target.checked};
+    applyModuleOffState();
+    updateCode();saveState();
+  });
+  // 点透明度：数值输入（与网格色点一致），输入即生效并即时回写
+  $('dotsOpacity').addEventListener('input',e=>{
+    const raw=e.target.value;
+    if(raw==='')return;                       // 清空输入时不打断，等 blur 归一
+    let v=Math.max(0,Math.min(100,Math.round(+raw)||0));
+    state.gradient.dots={...normDots(state.gradient.dots),opacity:v};
+    updateCode();saveState();
+  });
+  $('dotsOpacity').addEventListener('blur',e=>{
+    const v=normDots(state.gradient.dots).opacity;
+    e.target.value=Math.round(v);
+  });
+  $('dotsOpacity').addEventListener('keydown',e=>{
+    if(e.key==='Enter')e.target.blur();
+  });
+  $('dotsDensity').addEventListener('input',e=>{
+    state.gradient.dots={...normDots(state.gradient.dots),density:+e.target.value};
+    $('dotsDensityVal').textContent=+e.target.value;
+    updateCode();saveState();
+  });
+  $('dotsBlend').addEventListener('change',e=>{
+    state.gradient.dots={...normDots(state.gradient.dots),blend:e.target.value};
+    updateCode();saveState();
+  });
+  $('dotsSwatch').addEventListener('click',()=>{
+    const cur=normDots(state.gradient.dots).color;
+    showColorPicker($('dotsSwatch'),cur,hex=>{setDotsColor(hex);});
+  });
+  $('dotsHex').addEventListener('change',e=>{
+    const ok=setDotsColor(e.target.value.trim());
+    if(!ok){e.target.value=normDots(state.gradient.dots).color;toast('颜色格式应为 #RRGGBB');}
+  });
+  $('dotsHex').addEventListener('keydown',e=>{
+    if(e.key==='Enter')e.target.blur();
+  });
 
   $('addMesh').addEventListener('click',()=>{
     if(state.gradient.mesh.length>=8){toast('最多 8 个色点');return;}
@@ -2472,6 +3457,10 @@ function bindEvents(){
   $('btnFullscreen').addEventListener('click',()=>{
     toggleFullscreen();
   });
+  $('btnTogglePanels').addEventListener('click',()=>{
+    toggleSidePanels();
+    toast(document.body.classList.contains('panels-hidden')?'已收起编辑卡片':'已展开编辑卡片');
+  });
 
   $('btnDownloadPng').addEventListener('click',()=>{
     // 新导出流程：先检查预览 → 渲染 → 渲染完成后才弹保存框
@@ -2488,7 +3477,16 @@ function bindEvents(){
     toggleExportDropdown();
   });
 
-  $('btnCopyCode').addEventListener('click',()=>copyCode(state.codeTab));
+  // 随机生成（隐藏增强：Shift=仅浅色系，Ctrl/Cmd=仅深色系）
+  $('btnRandom').addEventListener('click',(e)=>{
+    const m=e.shiftKey?'light':((e.ctrlKey||e.metaKey)?'dark':null);
+    randomizeGradient(m);
+  });
+  // 品牌色随机生成：色相锁定在品牌色板内，其余参数（纯度/明度/透明度/流动/纹理）照常随机；
+  // 与普通随机互不影响（普通随机仍走 RND_RULES 全域取色）
+  $('btnBrandRandom').addEventListener('click',()=>{
+    randomizeGradient(null,{brand:true});
+  });
   $('btnCopy2').addEventListener('click',()=>copyCode(state.codeTab));
 
   // Export dropdown format
@@ -2551,8 +3549,15 @@ function bindEvents(){
 
   // Keyboard shortcuts
   document.addEventListener('keydown',(e)=>{
+    // Shift+Alt+R: 收起/展开两侧编辑卡片（用 e.code 判断，macOS 上 Option+R 的 e.key 是 '®'）
+    if(e.code==='KeyR'&&e.shiftKey&&e.altKey&&!e.metaKey&&!e.ctrlKey){
+      e.preventDefault();
+      toggleSidePanels();
+      toast(document.body.classList.contains('panels-hidden')?'已收起编辑卡片':'已展开编辑卡片');
+      return;
+    }
     // Shift+R: toggle fullscreen
-    if((e.key==='r'||e.key==='R')&&e.shiftKey){
+    if((e.key==='r'||e.key==='R')&&e.shiftKey&&!e.altKey){
       e.preventDefault();
       toggleFullscreen();
       return;
@@ -2656,12 +3661,22 @@ function bindEvents(){
   window.addEventListener('resize',resizeCanvas);
 
   /* ===== 在线预览事件 ===== */
+  // 总开关：控制「有 / 无」预览（取代旧版的「无」选项）
+  const overlayOn=$('overlayOn');
+  if(overlayOn){
+    overlayOn.addEventListener('change',e=>{
+      state.overlay.enabled=e.target.checked;
+      if(!e.target.checked)state.overlay.hidden=false; // 关闭时顺带复位临时隐藏
+      syncOverlayUI();saveState();
+    });
+  }
   const seg=$('overlaySeg');
   if(seg){
     [...seg.children].forEach(b=>b.addEventListener('click',()=>{
-      const mode=b.dataset.mode;
-      if(state.overlay.mode===mode)return;
-      state.overlay.mode=mode;
+      state.overlay.mode=b.dataset.mode;
+      // 点选具体模式即视为开启预览，避免「选了模式却没显示」
+      state.overlay.enabled=true;
+      state.overlay.hidden=false;
       syncOverlayUI();saveState();
     }));
   }
@@ -2698,14 +3713,6 @@ function bindEvents(){
       syncOverlayUI();saveState();
     });
   }
-  const closeOverlay=$('overlayClose');
-  if(closeOverlay){
-    closeOverlay.addEventListener('click',()=>{
-      state.overlay.mode='none';
-      state.overlay.hidden=false;
-      syncOverlayUI();saveState();
-    });
-  }
   const scaleInput=$('overlayScale');
   if(scaleInput){
     scaleInput.addEventListener('input',e=>{
@@ -2728,8 +3735,8 @@ function bindEvents(){
     const action=pendingExportAction;
     pendingExportAction=null;
     if(action){
-      // 选"是"= 真正关闭预览：所有预览效果隐藏关闭（文字内容/图片数据保留，可再次开启）
-      state.overlay.mode='none';
+      // 选"是"= 真正关闭预览：开关关闭（文字内容/图片数据保留，可再次开启）
+      state.overlay.enabled=false;
       state.overlay.hidden=false;
       syncOverlayUI();
       saveState();
@@ -2750,7 +3757,7 @@ let pendingExportAction=null;
 
 function isOverlayActive(){
   const ov=state.overlay;
-  return ov&&ov.mode!=='none'&&!ov.hidden;
+  return !!(ov&&ov.enabled&&ov.mode!=='none'&&!ov.hidden);
 }
 function checkOverlayBeforeExport(action){
   if(isOverlayActive()){
@@ -3210,8 +4217,8 @@ function genCanvas(){
 });
 `;
 
-  if(g.noise>0){
-    code += `// 电影胶片噪点（静态）
+  if(g.noiseOn!==false && g.noise>0){
+    code += `// 噪点纹理（静态）
 if(noise > 0){
   const noiseCanvas = document.createElement('canvas');
   const ns = Math.max(w, h);
@@ -3234,6 +4241,82 @@ if(noise > 0){
   ctx.drawImage(noiseCanvas, 0, 0, w, h);
   ctx.restore();
 }
+`;
+  }
+
+  const pa=normPaper(g.paper), dt=normDots(g.dots);
+
+  if(pa.enabled){
+    code += `// 纸张纤维纹理（纤维密度 ${Math.round(pa.fiber)}）
+(function(){
+  const tw = Math.min(w, 2560), s = tw / w, th = Math.max(8, Math.round(tw * h / w));
+  const tex = document.createElement('canvas');
+  tex.width = tw; tex.height = th;
+  const tc = tex.getContext('2d');
+  tc.scale(s, s);
+  tc.fillStyle = '#808080';
+  tc.fillRect(0, 0, w, h);
+  const f = ${(pa.fiber/100).toFixed(3)};
+  const count = Math.round(3000 - 2720 * f);
+  const lenBase = w * (0.008 + 0.072 * f);
+  const lwBase = (0.4 + 2.0 * f) * (w / 1600);
+  const minLw = 1 / s;
+  const aBase = 0.08 + 0.18 * f;
+  tc.lineCap = 'round';
+  for (let i = 0; i < count; i++) {
+    const len = lenBase * (0.35 + Math.random() * 1.7);
+    const x = Math.random() * w, y = Math.random() * h;
+    const ang = Math.random() * Math.PI * 2;
+    const bend = (Math.random() - 0.5) * len * 0.45;
+    const ex = x + Math.cos(ang) * len, ey = y + Math.sin(ang) * len;
+    const mx = (x + ex) / 2 - Math.sin(ang) * bend, my = (y + ey) / 2 + Math.cos(ang) * bend;
+    const a = (aBase * (0.6 + Math.random() * 1.0)).toFixed(3);
+    tc.strokeStyle = Math.random() < 0.54 ? 'rgba(255,255,255,' + a + ')' : 'rgba(0,0,0,' + a + ')';
+    tc.lineWidth = Math.max(minLw, lwBase * (0.55 + Math.random() * 1.0));
+    tc.beginPath(); tc.moveTo(x, y); tc.quadraticCurveTo(mx, my, ex, ey); tc.stroke();
+  }
+  const knots = Math.round(count * 0.10);
+  for (let i = 0; i < knots; i++) {
+    const a = (aBase * (0.35 + Math.random() * 0.55)).toFixed(3);
+    tc.fillStyle = Math.random() < 0.5 ? 'rgba(255,255,255,' + a + ')' : 'rgba(0,0,0,' + a + ')';
+    tc.beginPath(); tc.arc(Math.random() * w, Math.random() * h, Math.max(minLw * 0.6, lwBase * (0.6 + Math.random() * 1.2)), 0, Math.PI * 2); tc.fill();
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.drawImage(tex, 0, 0, w, h);
+  ctx.restore();
+})();
+`;
+  }
+
+  if(dt.enabled){
+    code += `// 点阵纹理（${dt.color} · 透明度 ${Math.round(dt.opacity)}% · 混合模式 ${dt.blend}）
+(function(){
+  const tw = Math.min(w, 2560), s = tw / w, th = Math.max(8, Math.round(tw * h / w));
+  const tex = document.createElement('canvas');
+  tex.width = tw; tex.height = th;
+  const tc = tex.getContext('2d');
+  tc.scale(s, s);
+  const d = ${(dt.density/100).toFixed(3)};
+  const gap = w * (0.018 + 0.052 * d);
+  const rad = w * (0.0010 + 0.0040 * d);
+  const jit = gap * 0.13;
+  const cols = Math.ceil(w / gap) + 2, rows = Math.ceil(h / gap) + 2;
+  tc.fillStyle = '${dt.color}';
+  for (let j = 0; j < rows; j++) {
+    const off = (j % 2) ? gap * 0.5 : 0;
+    for (let i = 0; i < cols; i++) {
+      const x = i * gap + off - gap * 0.5 + (Math.random() - 0.5) * jit;
+      const y = j * gap + (Math.random() - 0.5) * jit;
+      tc.beginPath(); tc.arc(x, y, rad * (0.9 + Math.random() * 0.2), 0, Math.PI * 2); tc.fill();
+    }
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = '${dt.blend}';
+  ctx.globalAlpha = ${(dt.opacity/100).toFixed(3)};
+  ctx.drawImage(tex, 0, 0, w, h);
+  ctx.restore();
+})();
 `;
   }
 
@@ -3266,6 +4349,7 @@ function resizeCanvas(){
   canvas.height=h;
   $('footSize').textContent=w+'×'+h;
   invalidateNoise();
+  invalidateTextures();
 }
 
 /* ============ 启动 ============ */
